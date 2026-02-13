@@ -1,0 +1,18 @@
+[package]
+name = "quickjs-hook"
+version = "0.1.0"
+edition = "2021"
+description = "QuickJS JavaScript engine with inline hook support for ARM64 Android"
+authors = ["rustFrida contributors"]
+license = "Apache-2.0"
+
+[features]
+default = []
+std = []
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1"
+bindgen = "0.70"

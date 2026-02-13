@@ -1,0 +1,73 @@
+//! JSRuntime wrapper
+
+use crate::context::JSContext;
+use crate::ffi;
+use std::ptr::NonNull;
+
+/// Wrapper around QuickJS JSRuntime
+pub struct JSRuntime {
+    ptr: NonNull<ffi::JSRuntime>,
+}
+
+impl JSRuntime {
+    /// Create a new JSRuntime
+    pub fn new() -> Option<Self> {
+        let ptr = unsafe { ffi::JS_NewRuntime() };
+        NonNull::new(ptr).map(|ptr| {
+            // Set memory limit (64MB default)
+            unsafe {
+                ffi::JS_SetMemoryLimit(ptr.as_ptr(), 64 * 1024 * 1024);
+            }
+            JSRuntime { ptr }
+        })
+    }
+
+    /// Create a new JSContext in this runtime
+    pub fn new_context(&self) -> Option<JSContext> {
+        JSContext::new(self)
+    }
+
+    /// Get the raw pointer
+    pub fn as_ptr(&self) -> *mut ffi::JSRuntime {
+        self.ptr.as_ptr()
+    }
+
+    /// Set memory limit in bytes
+    pub fn set_memory_limit(&self, limit: usize) {
+        unsafe {
+            ffi::JS_SetMemoryLimit(self.ptr.as_ptr(), limit);
+        }
+    }
+
+    /// Run garbage collection
+    pub fn run_gc(&self) {
+        unsafe {
+            ffi::JS_RunGC(self.ptr.as_ptr());
+        }
+    }
+
+    /// Set max stack size
+    pub fn set_max_stack_size(&self, stack_size: usize) {
+        unsafe {
+            ffi::JS_SetMaxStackSize(self.ptr.as_ptr(), stack_size);
+        }
+    }
+}
+
+impl Drop for JSRuntime {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::JS_FreeRuntime(self.ptr.as_ptr());
+        }
+    }
+}
+
+// Safety: JSRuntime is protected by Mutex in the global JS_ENGINE, ensuring single-threaded access
+unsafe impl Send for JSRuntime {}
+unsafe impl Sync for JSRuntime {}
+
+impl Default for JSRuntime {
+    fn default() -> Self {
+        Self::new().expect("Failed to create JSRuntime")
+    }
+}

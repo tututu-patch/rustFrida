@@ -1,0 +1,20 @@
+//! FFI bindings for QuickJS and hook_engine
+
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(clippy::all)]
+
+// Include the generated QuickJS bindings
+include!(concat!(env!("OUT_DIR"), "/quickjs_bindings.rs"));
+
+// Include the generated hook_engine bindings
+pub mod hook {
+    #![allow(non_upper_case_globals)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_snake_case)]
+    #![allow(dead_code)]
+
+    include!(concat!(env!("OUT_DIR"), "/hook_bindings.rs"));
+}

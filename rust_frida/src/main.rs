@@ -443,6 +443,10 @@ struct Args {
     /// 格式: name=value 或直接指定值
     #[arg(short = 's', long = "string", value_name = "NAME=VALUE")]
     strings: Vec<String>,
+
+    /// 加载并执行JavaScript脚本文件
+    #[arg(short = 'l', long = "load-script", value_name = "FILE")]
+    load_script: Option<String>,
 }
 
 fn create_memfd_with_data(name: &str, data: &[u8]) -> Result<RawFd, String> {
@@ -913,6 +917,29 @@ fn main() {
         }
     }
     let sender = GLOBAL_SENDER.get().unwrap();
+
+    // If a script file was specified, load and send it
+    if let Some(script_path) = &args.load_script {
+        match std::fs::read_to_string(script_path) {
+            Ok(script) => {
+                println!("Loading script from: {}", script_path);
+                // First initialize the JS engine
+                if let Err(e) = sender.send("jsinit".to_string()) {
+                    eprintln!("Failed to send jsinit: {}", e);
+                }
+                // Wait a bit for initialization
+                unsafe { sleep(1) };
+                // Send the script
+                let cmd = format!("loadjs {}", script);
+                if let Err(e) = sender.send(cmd) {
+                    eprintln!("Failed to send loadjs: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to read script file '{}': {}", script_path, e);
+            }
+        }
+    }
 
     loop {
         let mut line = String::new();

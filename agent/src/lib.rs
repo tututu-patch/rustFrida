@@ -10,6 +10,8 @@ mod trace;
 mod stalker;
 #[cfg(feature = "qbdi")]
 mod qbdi_trace;
+#[cfg(feature = "quickjs")]
+mod quickjs_loader;
 
 use crate::jhook::jhook;
 use libc::{c_char, c_int, close, kill, mmap, munmap, pid_t, sockaddr, sockaddr_un, sysconf, AF_UNIX, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, SIGSTOP, _SC_PAGESIZE, SIGTRAP};
@@ -266,6 +268,60 @@ extern "C" {
     fn _Unwind_GetIP(ctx: *mut UnwindContext) -> usize;
 }
 
+/// dladdr 返回的符号信息结构体
+#[repr(C)]
+struct DlInfo {
+    dli_fname: *const c_char,  // 包含地址的共享库路径
+    dli_fbase: *mut c_void,    // 共享库的基地址
+    dli_sname: *const c_char,  // 最近符号的名称
+    dli_saddr: *mut c_void,    // 最近符号的地址
+}
+
+extern "C" {
+    fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
+}
+
+/// 使用 dladdr 解析地址的符号信息
+fn resolve_symbol(addr: usize) -> (Option<String>, Option<String>, usize) {
+    unsafe {
+        let mut info: DlInfo = zeroed();
+        if dladdr(addr as *const c_void, &mut info) != 0 {
+            // 获取库名
+            let lib_name = if !info.dli_fname.is_null() {
+                CStr::from_ptr(info.dli_fname)
+                    .to_str()
+                    .ok()
+                    .map(|s| s.rsplit('/').next().unwrap_or(s).to_string())
+            } else {
+                None
+            };
+
+            // 获取符号名
+            let sym_name = if !info.dli_sname.is_null() {
+                CStr::from_ptr(info.dli_sname)
+                    .to_str()
+                    .ok()
+                    .map(|s| s.to_string())
+            } else {
+                None
+            };
+
+            // 计算相对偏移（相对于库基址或符号地址）
+            let offset = if !info.dli_saddr.is_null() {
+                addr.saturating_sub(info.dli_saddr as usize)
+            } else if !info.dli_fbase.is_null() {
+                addr.saturating_sub(info.dli_fbase as usize)
+            } else {
+                0
+            };
+
+            (lib_name, sym_name, offset)
+        } else {
+            (None, None, 0)
+        }
+    }
+}
+
 struct BacktraceData {
     frames: Vec<usize>,
     max_frames: usize,
@@ -428,9 +484,32 @@ extern "C" fn crash_signal_handler(sig: c_int, info: *mut siginfo_t, _ucontext: 
 
         #[cfg(not(feature = "frida-gum"))]
         {
-            // 无 frida-gum 时只打印地址
+            // 使用 dladdr 获取符号信息
             for (idx, &addr) in frames.iter().enumerate() {
-                crash_msg.push_str(&format!("#{:<3} 0x{:016x}\n", idx, addr));
+                crash_msg.push_str(&format!("#{:<3} 0x{:016x}", idx, addr));
+
+                let (lib_name, sym_name, offset) = resolve_symbol(addr);
+
+                match (lib_name, sym_name) {
+                    (Some(lib), Some(sym)) => {
+                        if is_memfd(&lib) {
+                            crash_msg.push_str(&format!(" (memfd) {}+0x{:x}", sym, offset));
+                        } else {
+                            crash_msg.push_str(&format!(" {} ({}+0x{:x})", lib, sym, offset));
+                        }
+                    }
+                    (Some(lib), None) => {
+                        if is_memfd(&lib) {
+                            crash_msg.push_str(&format!(" (memfd+0x{:x})", offset));
+                        } else {
+                            crash_msg.push_str(&format!(" {} +0x{:x}", lib, offset));
+                        }
+                    }
+                    _ => {
+                        crash_msg.push_str(" <unknown>");
+                    }
+                }
+                crash_msg.push('\n');
             }
         }
 
@@ -467,6 +546,43 @@ fn install_crash_handlers() {
     // log_msg("Crash signal handlers installed\n".to_string());
 }
 
+/// 安装Rust panic hook，捕获panic并输出带符号的backtrace
+fn install_panic_hook() {
+    use std::backtrace::Backtrace;
+
+    std::panic::set_hook(Box::new(|panic_info| {
+        // 强制捕获backtrace，无视环境变量
+        let bt = Backtrace::force_capture();
+
+        // 获取panic位置
+        let location = panic_info.location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // 获取panic消息
+        let payload = panic_info.payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| panic_info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("unknown panic");
+
+        let msg = format!(
+            "\n\n=== RUST PANIC ===\n\
+             Location: {}\n\
+             Message: {}\n\
+             PID: {}, TID: {}\n\n\
+             Backtrace:\n{}\n\
+             =================\n\n",
+            location, payload,
+            process::id(),
+            unsafe { libc::gettid() },
+            bt
+        );
+
+        log_msg(msg);
+    }));
+}
+
 /// 日志函数：socket未连接时缓存，已连接时直接发送
 fn log_msg(msg: String ){
     match GLOBAL_STREAM.get() {
@@ -494,7 +610,9 @@ fn flush_cached_logs() {
 }
 #[no_mangle]
 pub extern "C" fn hello_entry(string_table: *mut c_void) -> *mut c_void {
-    // 首先安装崩溃信号处理器
+    // 安装Rust panic hook（需要在最前面，捕获Rust层面的panic）
+    install_panic_hook();
+    // 安装崩溃信号处理器（捕获SIGSEGV等信号）
     install_crash_handlers();
 
     unsafe {
@@ -606,6 +724,34 @@ fn process_cmd(command: &str) {
                 usize::from_str_radix(s, 16).ok()
             }).unwrap_or(0);
             qbdi_trace::qfollow(md, offset)
+        },
+        #[cfg(feature = "quickjs")]
+        Some("jsinit") => {
+            match quickjs_loader::init() {
+                Ok(_) => log_msg("[quickjs] Engine initialized\n".to_string()),
+                Err(e) => log_msg(format!("[quickjs] Init error: {}\n", e)),
+            }
+        },
+        #[cfg(feature = "quickjs")]
+        Some("loadjs") => {
+            // Extract the script (everything after "loadjs ")
+            let script = command.strip_prefix("loadjs").unwrap_or("").trim().to_string();
+            if script.is_empty() {
+                log_msg("[quickjs] Error: empty script\n".to_string());
+            } else {
+                // Run in a separate thread to avoid blocking
+                std::thread::spawn(move || {
+                    match quickjs_loader::execute_script(&script) {
+                        Ok(_) => log_msg("[quickjs] Script executed successfully\n".to_string()),
+                        Err(e) => log_msg(format!("[quickjs] Script error: {}\n", e)),
+                    }
+                });
+            }
+        },
+        #[cfg(feature = "quickjs")]
+        Some("jsclean") => {
+            quickjs_loader::cleanup();
+            log_msg("[quickjs] Cleaned up\n".to_string());
         },
         _ => {
             log_msg("无效命令".to_string())

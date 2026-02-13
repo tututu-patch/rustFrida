@@ -8,7 +8,8 @@ members = [
     "ldmonitor",
     "ldmonitor-common",
     "ldmonitor-ebpf",
-    "qbdi"
+    "qbdi",
+    "quickjs-hook"
 ]
 # We miss our linux_no_std example from the default members since `cargo check`
 # and `cargo test` both attempt to link the `std` library into it in error.
@@ -39,3 +40,11 @@ libc = "0.2"
 log = "0.4"
 tokio = "1"
 which = "7"
+
+[profile.release]
+strip = false
+debug = 2  # 保留行号信息，便于调试
+
+[profile.dev]
+strip = false
+debug = 2

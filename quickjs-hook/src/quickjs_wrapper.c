@@ -1,0 +1,235 @@
+/*
+ * quickjs_wrapper.c - C wrappers for QuickJS inline functions
+ *
+ * QuickJS defines many functions as static inline, which bindgen cannot
+ * generate bindings for. This file provides C wrapper functions.
+ */
+
+#include "quickjs.h"
+#include <string.h>
+
+/* JS_FreeValue wrapper */
+void qjs_free_value(JSContext *ctx, JSValue v) {
+    JS_FreeValue(ctx, v);
+}
+
+/* JS_FreeValueRT wrapper */
+void qjs_free_value_rt(JSRuntime *rt, JSValue v) {
+    JS_FreeValueRT(rt, v);
+}
+
+/* JS_DupValue wrapper */
+JSValue qjs_dup_value(JSContext *ctx, JSValue v) {
+    return JS_DupValue(ctx, v);
+}
+
+/* JS_DupValueRT wrapper */
+JSValue qjs_dup_value_rt(JSRuntime *rt, JSValue v) {
+    return JS_DupValueRT(rt, v);
+}
+
+/* JS_ToCString wrapper */
+const char *qjs_to_cstring(JSContext *ctx, JSValue val) {
+    return JS_ToCString(ctx, val);
+}
+
+/* JS_FreeCString wrapper */
+void qjs_free_cstring(JSContext *ctx, const char *str) {
+    JS_FreeCString(ctx, str);
+}
+
+/* JS_GetProperty wrapper */
+JSValue qjs_get_property(JSContext *ctx, JSValue this_obj, JSAtom prop) {
+    return JS_GetProperty(ctx, this_obj, prop);
+}
+
+/* JS_SetProperty wrapper */
+int qjs_set_property(JSContext *ctx, JSValue this_obj, JSAtom prop, JSValue val) {
+    return JS_SetProperty(ctx, this_obj, prop, val);
+}
+
+/* JS_NewCFunction wrapper */
+JSValue qjs_new_cfunction(JSContext *ctx, JSCFunction *func, const char *name, int length) {
+    return JS_NewCFunction(ctx, func, name, length);
+}
+
+/* JS_NewCFunctionMagic wrapper */
+JSValue qjs_new_cfunction_magic(JSContext *ctx, JSCFunctionMagic *func,
+                                  const char *name, int length, JSCFunctionEnum cproto, int magic) {
+    return JS_NewCFunctionMagic(ctx, func, name, length, cproto, magic);
+}
+
+/* JS_IsNumber wrapper */
+int qjs_is_number(JSValue v) {
+    return JS_IsNumber(v);
+}
+
+/* JS_IsBigInt wrapper */
+int qjs_is_big_int(JSContext *ctx, JSValue v) {
+    return JS_IsBigInt(ctx, v);
+}
+
+/* JS_IsBigFloat wrapper */
+int qjs_is_big_float(JSValue v) {
+    return JS_IsBigFloat(v);
+}
+
+/* JS_IsBigDecimal wrapper */
+int qjs_is_big_decimal(JSValue v) {
+    return JS_IsBigDecimal(v);
+}
+
+/* JS_IsBool wrapper */
+int qjs_is_bool(JSValue v) {
+    return JS_IsBool(v);
+}
+
+/* JS_IsNull wrapper */
+int qjs_is_null(JSValue v) {
+    return JS_IsNull(v);
+}
+
+/* JS_IsUndefined wrapper */
+int qjs_is_undefined(JSValue v) {
+    return JS_IsUndefined(v);
+}
+
+/* JS_IsException wrapper */
+int qjs_is_exception(JSValue v) {
+    return JS_IsException(v);
+}
+
+/* JS_IsUninitialized wrapper */
+int qjs_is_uninitialized(JSValue v) {
+    return JS_IsUninitialized(v);
+}
+
+/* JS_IsString wrapper */
+int qjs_is_string(JSValue v) {
+    return JS_IsString(v);
+}
+
+/* JS_IsSymbol wrapper */
+int qjs_is_symbol(JSValue v) {
+    return JS_IsSymbol(v);
+}
+
+/* JS_IsObject wrapper */
+int qjs_is_object(JSValue v) {
+    return JS_IsObject(v);
+}
+
+/* JS_VALUE_GET_TAG wrapper */
+int32_t qjs_value_get_tag(JSValue v) {
+    return JS_VALUE_GET_TAG(v);
+}
+
+/* JS_VALUE_GET_INT wrapper */
+int32_t qjs_value_get_int(JSValue v) {
+    return JS_VALUE_GET_INT(v);
+}
+
+/* JS_VALUE_GET_BOOL wrapper */
+int qjs_value_get_bool(JSValue v) {
+    return JS_VALUE_GET_BOOL(v);
+}
+
+/* JS_VALUE_GET_FLOAT64 wrapper */
+double qjs_value_get_float64(JSValue v) {
+    return JS_VALUE_GET_FLOAT64(v);
+}
+
+/* JS_VALUE_GET_PTR wrapper */
+void *qjs_value_get_ptr(JSValue v) {
+    return JS_VALUE_GET_PTR(v);
+}
+
+/* JS_MKVAL wrapper */
+JSValue qjs_mkval(int32_t tag, int32_t val) {
+    return JS_MKVAL(tag, val);
+}
+
+/* JS_MKPTR wrapper */
+JSValue qjs_mkptr(int32_t tag, void *ptr) {
+    return JS_MKPTR(tag, ptr);
+}
+
+/* JS_NewBool wrapper */
+JSValue qjs_new_bool(JSContext *ctx, int val) {
+    return JS_NewBool(ctx, val);
+}
+
+/* JS_NewInt32 wrapper */
+JSValue qjs_new_int32(JSContext *ctx, int32_t val) {
+    return JS_NewInt32(ctx, val);
+}
+
+/* JS_NewInt64 wrapper */
+JSValue qjs_new_int64(JSContext *ctx, int64_t val) {
+    return JS_NewInt64(ctx, val);
+}
+
+/* JS_NewUint32 wrapper */
+JSValue qjs_new_uint32(JSContext *ctx, uint32_t val) {
+    return JS_NewUint32(ctx, val);
+}
+
+/* JS_NewFloat64 wrapper */
+JSValue qjs_new_float64(JSContext *ctx, double val) {
+    return JS_NewFloat64(ctx, val);
+}
+
+/* JS_ToUint32 wrapper */
+int qjs_to_uint32(JSContext *ctx, uint32_t *pres, JSValue val) {
+    return JS_ToUint32(ctx, pres, val);
+}
+
+/* JS_ToInt64 wrapper */
+int qjs_to_int64(JSContext *ctx, int64_t *pres, JSValue val) {
+    return JS_ToInt64(ctx, pres, val);
+}
+
+/* JS_ToIndex wrapper */
+int qjs_to_index(JSContext *ctx, uint64_t *pres, JSValue val) {
+    return JS_ToIndex(ctx, pres, val);
+}
+
+/* JS_ToFloat64 wrapper */
+int qjs_to_float64(JSContext *ctx, double *pres, JSValue val) {
+    return JS_ToFloat64(ctx, pres, val);
+}
+
+/* JS_ToBigInt64 wrapper */
+int qjs_to_big_int64(JSContext *ctx, int64_t *pres, JSValue val) {
+    return JS_ToBigInt64(ctx, pres, val);
+}
+
+/* JS_NULL constant */
+JSValue qjs_null(void) {
+    return JS_NULL;
+}
+
+/* JS_UNDEFINED constant */
+JSValue qjs_undefined(void) {
+    return JS_UNDEFINED;
+}
+
+/* JS_FALSE constant */
+JSValue qjs_false(void) {
+    return JS_FALSE;
+}
+
+/* JS_TRUE constant */
+JSValue qjs_true(void) {
+    return JS_TRUE;
+}
+
+/* JS_EXCEPTION constant */
+JSValue qjs_exception(void) {
+    return JS_EXCEPTION;
+}
+
+/* JS_UNINITIALIZED constant */
+JSValue qjs_uninitialized(void) {
+    return JS_UNINITIALIZED;
+}
