@@ -5,7 +5,7 @@
 
 #![cfg(feature = "quickjs")]
 
-use quickjs_hook::{init_hook_engine, load_script, set_console_callback, cleanup_hook_engine, cleanup_hooks, cleanup_engine};
+use quickjs_hook::{init_hook_engine, get_or_init_engine, load_script, complete_script, set_console_callback, cleanup_hook_engine, cleanup_hooks, cleanup_engine};
 use std::sync::OnceLock;
 use std::io::Write;
 use libc::{mmap, munmap, PROT_READ, PROT_WRITE, PROT_EXEC, MAP_PRIVATE, MAP_ANONYMOUS, sysconf, _SC_PAGESIZE};
@@ -80,6 +80,9 @@ pub fn init() -> Result<(), String> {
     // Initialize hook engine
     init_hook_engine(exec_mem.as_ptr(), exec_mem.size())?;
 
+    // 初始化 JS 引擎（complete_script 依赖它）
+    get_or_init_engine()?;
+
     // Set up console callback to send output to socket
     set_console_callback(|msg| {
         if let Some(mut stream) = GLOBAL_STREAM.get() {
@@ -106,6 +109,15 @@ pub fn execute_script(script: &str) -> Result<(), String> {
     }
 
     load_script(script)
+}
+
+/// Get tab-completion candidates for the given prefix from the live JS engine.
+///
+/// Returns a newline-joined string of matching property names, or an empty string
+/// if the engine is not initialised.
+pub fn complete(prefix: &str) -> String {
+    let candidates = complete_script(prefix);
+    candidates.join("\n")
 }
 
 /// Cleanup QuickJS resources

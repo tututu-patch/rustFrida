@@ -154,6 +154,72 @@ pub fn cleanup_engine() {
     }
 }
 
+/// Get completion candidates for a given prefix from the global JS engine.
+///
+/// Evaluates `Object.keys(globalThis)` (and prototype chain via a helper) in the
+/// running engine and returns all property names that start with `prefix`.
+/// Returns an empty vec if the engine is not initialised or on any error.
+pub fn complete_script(prefix: &str) -> Vec<String> {
+    let engine = match JS_ENGINE.lock() {
+        Ok(g) => g,
+        Err(_) => return vec![],
+    };
+    let engine = match engine.as_ref() {
+        Some(e) => e,
+        None => return vec![],
+    };
+
+    let script = r#"
+        (function() {
+            var names = [];
+            var obj = globalThis;
+            while (obj !== null && obj !== undefined) {
+                try {
+                    var keys = Object.getOwnPropertyNames(obj);
+                    for (var i = 0; i < keys.length; i++) { names.push(keys[i]); }
+                } catch(e) {}
+                obj = Object.getPrototypeOf(obj);
+            }
+            return JSON.stringify(names);
+        })()
+    "#;
+
+    let result = match engine.eval(script) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+
+    let json_str = match result.to_string(engine.context().as_ptr()) {
+        Some(s) => s,
+        None => {
+            result.free(engine.context().as_ptr());
+            return vec![];
+        },
+    };
+    result.free(engine.context().as_ptr());
+
+    // Parse the JSON array manually (avoid pulling in serde just for this)
+    let trimmed = json_str.trim().trim_start_matches('[').trim_end_matches(']');
+    if trimmed.is_empty() {
+        return vec![];
+    }
+
+    let prefix_lower = prefix.to_lowercase();
+    let mut candidates: Vec<String> = trimmed
+        .split(',')
+        .filter_map(|s| {
+            let s = s.trim().trim_matches('"');
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        })
+        .filter(|name| name.to_lowercase().starts_with(&prefix_lower))
+        .collect();
+
+    // Deduplicate while preserving order
+    candidates.sort();
+    candidates.dedup();
+    candidates
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

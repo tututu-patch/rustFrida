@@ -755,6 +755,15 @@ fn process_cmd(command: &str) {
             quickjs_loader::cleanup();
             log_msg("[quickjs] Cleaned up\n".to_string());
         },
+        #[cfg(feature = "quickjs")]
+        Some("jscomplete") => {
+            let prefix = command.strip_prefix("jscomplete").unwrap_or("").trim();
+            let result = quickjs_loader::complete(prefix);
+            // 直接写 socket，不走 log_msg（避免 [agent] 前缀干扰 host 解析）
+            if let Some(mut stream) = GLOBAL_STREAM.get() {
+                let _ = stream.write_all(format!("COMPLETE:{}\n", result).as_bytes());
+            }
+        },
         _ => {
             log_msg("无效命令".to_string())
         }

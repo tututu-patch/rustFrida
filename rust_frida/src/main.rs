@@ -32,12 +32,20 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Condvar, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::process;
 
 static AGENT_MEMFD: AtomicI32 = AtomicI32::new(-1);
+
+/// Shared state for synchronous jscomplete request/response.
+/// The Condvar is notified when the agent returns a COMPLETE: response.
+static COMPLETE_RESULT: OnceLock<(Mutex<Option<Vec<String>>>, Condvar)> = OnceLock::new();
+
+fn complete_state() -> &'static (Mutex<Option<Vec<String>>>, Condvar) {
+    COMPLETE_RESULT.get_or_init(|| (Mutex::new(None), Condvar::new()))
+}
 
 /// 定义需要获取偏移的函数列表
 macro_rules! define_libc_functions {
@@ -535,6 +543,23 @@ fn handle_socket_connection(mut stream: UnixStream) {
                         }
                     }
                 });
+            } else if trimmed.contains("COMPLETE:") {
+                // 从消息中提取 COMPLETE: 部分（可能和其他输出混在一起）
+                let complete_part = if let Some(pos) = trimmed.find("COMPLETE:") {
+                    &trimmed[pos + "COMPLETE:".len()..]
+                } else {
+                    ""
+                };
+                let candidates: Vec<String> = if complete_part.is_empty() {
+                    vec![]
+                } else {
+                    complete_part.lines().map(|s| s.to_string()).collect()
+                };
+                let (lock, cvar) = complete_state();
+                if let Ok(mut guard) = lock.lock() {
+                    *guard = Some(candidates);
+                    cvar.notify_all();
+                }
             } else {
                 log_agent!("{}", trimmed);
             }
@@ -606,6 +631,8 @@ const AGENT_SO: &[u8] = include_bytes!("../../target/aarch64-linux-android/debug
 /// * `data` - 要写入的数据指针
 /// * `size` - 数据大小（字节数）
 fn write_remote_mem(pid: i32, addr: usize, data: *const u8, size: usize) -> Result<(), String> {
+    // 去掉 MTE 标签位（高 byte），ptrace 不支持带标签的地址
+    let addr = addr & 0x00FFFFFFFFFFFFFF;
     let mut offset = 0;
     while offset < size {
         let remaining = size - offset;
@@ -632,7 +659,8 @@ fn write_remote_mem(pid: i32, addr: usize, data: *const u8, size: usize) -> Resu
         };
         
         if result == -1 {
-            return Err(format!("写入内存失败，错误码: {}", unsafe { *libc::__errno() }));
+            let errno = unsafe { *libc::__errno() };
+            return Err(format!("写入内存失败 addr=0x{:x} offset={} size={} errno={}", addr, offset, size, errno));
         }
         
         offset += write_size;
@@ -869,15 +897,16 @@ fn watch_and_inject(so_pattern: &str, timeout_secs: Option<u64>, string_override
 
 /// 支持的命令列表及其说明
 const COMMANDS: &[(&str, &str, &str)] = &[
-    ("trace",   "[tid]",           "ptrace 指令追踪"),
-    ("jhook",   "",                "Java/JNI hooking"),
-    ("stalker", "[tid]",           "Frida Stalker 追踪"),
-    ("hfl",     "<module> <offset>","Interceptor hook 指定偏移"),
-    ("qfl",     "<module> <offset>","QBDI 追踪指定偏移"),
-    ("jsinit",  "",                "初始化 QuickJS 引擎"),
-    ("loadjs",  "<script>",        "执行 JavaScript 代码"),
-    ("jsclean", "",                "清理 QuickJS 引擎"),
-    ("help",    "",                "显示此帮助信息"),
+    ("trace",      "[tid]",            "ptrace 指令追踪"),
+    ("jhook",      "",                 "Java/JNI hooking"),
+    ("stalker",    "[tid]",            "Frida Stalker 追踪"),
+    ("hfl",        "<module> <offset>","Interceptor hook 指定偏移"),
+    ("qfl",        "<module> <offset>","QBDI 追踪指定偏移"),
+    ("jsinit",     "",                 "初始化 QuickJS 引擎"),
+    ("loadjs",     "<script>",         "执行 JavaScript 代码"),
+    ("jsclean",    "",                 "清理 QuickJS 引擎"),
+    ("jsrepl",     "",                 "进入 JS REPL 模式（Tab 动态补全）"),
+    ("help",       "",                 "显示此帮助信息"),
 ];
 
 /// Tab 补全器：仅补全第一个 token（命令名）
@@ -923,6 +952,90 @@ impl Highlighter for CommandCompleter {}
 impl Validator for CommandCompleter {}
 impl Helper for CommandCompleter {}
 
+/// JS REPL 补全器：通过 socket 向 agent 发送 jscomplete 请求，同步等待结果。
+struct JsReplCompleter {
+    sender: Sender<String>,
+}
+
+impl JsReplCompleter {
+    fn new(sender: Sender<String>) -> Self {
+        JsReplCompleter { sender }
+    }
+
+    /// Send a jscomplete request and block until the agent replies (≤2000 ms timeout).
+    fn fetch_completions(&self, prefix: &str) -> Vec<String> {
+        let (lock, cvar) = complete_state();
+
+        // 持有锁的同时 clear + send + wait，避免竞态
+        let mut guard = match lock.lock() {
+            Ok(g) => g,
+            Err(_) => return vec![],
+        };
+        *guard = None;
+
+        // Send the request
+        let cmd = format!("jscomplete {}", prefix);
+        if self.sender.send(cmd).is_err() {
+            return vec![];
+        }
+
+        // Wait for the response (up to 2000 ms)
+        // wait_timeout 会原子释放锁并等待，被唤醒后重新获取锁
+        let timeout = std::time::Duration::from_millis(2000);
+        let result = cvar.wait_timeout_while(guard, timeout, |val| val.is_none());
+        match result {
+            Ok((guard, timeout_result)) => {
+                if timeout_result.timed_out() {
+                    vec![]
+                } else {
+                    guard.clone().unwrap_or_default()
+                }
+            },
+            Err(_) => vec![],
+        }
+    }
+}
+
+impl Completer for JsReplCompleter {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        let before_cursor = &line[..pos];
+
+        // Determine what to complete: after the last '.' we complete a property,
+        // otherwise we complete from the global scope.
+        let (start, prefix) = if let Some(dot_pos) = before_cursor.rfind('.') {
+            // object.prop<TAB>  →  complete prop on that object (still query global for now)
+            (dot_pos + 1, &before_cursor[dot_pos + 1..])
+        } else {
+            (0, before_cursor)
+        };
+
+        let candidates: Vec<Pair> = self
+            .fetch_completions(prefix)
+            .into_iter()
+            .map(|name| Pair {
+                display: name.clone(),
+                replacement: name,
+            })
+            .collect();
+
+        Ok((start, candidates))
+    }
+}
+
+impl Hinter for JsReplCompleter {
+    type Hint = String;
+}
+impl Highlighter for JsReplCompleter {}
+impl Validator for JsReplCompleter {}
+impl Helper for JsReplCompleter {}
+
 /// 打印命令帮助表
 fn print_help() {
     use crate::logger::{BOLD, CYAN, GREEN, RESET, YELLOW, DIM};
@@ -936,6 +1049,56 @@ fn print_help() {
         );
     }
     println!();
+}
+
+/// Enter an interactive JS REPL mode.
+///
+/// Every line is sent as `loadjs <line>` to the agent.  Tab completion
+/// queries the live QuickJS global scope via `jscomplete`.
+/// Type `exit` or press Ctrl-D / Ctrl-C to return to the main prompt.
+fn run_js_repl(sender: &Sender<String>) {
+    use crate::logger::{BOLD, CYAN, DIM, RESET};
+    println!("\n{BOLD}{CYAN}进入 JS REPL 模式{RESET} {DIM}(输入 exit 或按 Ctrl-D 退出){RESET}\n");
+
+    // Clone the sender so JsReplCompleter can own it
+    let sender_clone = sender.clone();
+    let mut rl: Editor<JsReplCompleter, _> = match Editor::new() {
+        Ok(e) => e,
+        Err(e) => {
+            log_error!("初始化 JS REPL 行编辑器失败: {}", e);
+            return;
+        }
+    };
+    rl.set_helper(Some(JsReplCompleter::new(sender_clone)));
+
+    loop {
+        match rl.readline("js> ") {
+            Ok(line) => {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
+                let _ = rl.add_history_entry(&line);
+                if line == "exit" || line == "quit" {
+                    println!("{DIM}退出 JS REPL 模式{RESET}");
+                    break;
+                }
+                let cmd = format!("loadjs {}", line);
+                if let Err(e) = sender.send(cmd) {
+                    log_error!("发送 JS 命令失败: {}", e);
+                    break;
+                }
+            }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
+                println!("{DIM}退出 JS REPL 模式{RESET}");
+                break;
+            }
+            Err(e) => {
+                log_error!("读取 JS REPL 输入失败: {}", e);
+                break;
+            }
+        }
+    }
 }
 
 fn main() {
@@ -1051,6 +1214,10 @@ fn main() {
                 let _ = rl.add_history_entry(&line);
                 if line == "help" {
                     print_help();
+                    continue;
+                }
+                if line == "jsrepl" {
+                    run_js_repl(sender);
                     continue;
                 }
                 match sender.send(line) {
