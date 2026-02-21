@@ -229,7 +229,9 @@ pub(crate) fn handle_socket_connection(mut stream: UnixStream) {
                         continue;
                     }
                     if line.starts_with("EVAL_ERR:") {
-                        eval_state().send(Err(line["EVAL_ERR:".len()..].to_string()));
+                        // agent 侧用 \r 替换 \n 传输多行错误（含堆栈），此处还原
+                        let content = line["EVAL_ERR:".len()..].replace('\r', "\n");
+                        eval_state().send(Err(content));
                     } else if line.starts_with("EVAL:") {
                         eval_state().send(Ok(line["EVAL:".len()..].to_string()));
                     } else {

@@ -148,7 +148,7 @@ pub fn load_script(script: &str) -> Result<String, String> {
     let value = engine.eval(script)?;
     engine.run_pending_jobs();
     let result = if value.is_undefined() {
-        String::new()
+        "undefined".to_string()
     } else {
         value
             .to_string(engine.context().as_ptr())

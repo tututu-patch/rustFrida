@@ -128,8 +128,7 @@ fn main() {
                                 log_error!("发送 loadjs 失败: {}", e);
                             } else {
                                 // 等待脚本执行结果
-                                match eval_state()
-                                    .recv_timeout(std::time::Duration::from_secs(30))
+                                match eval_state().recv_timeout(std::time::Duration::from_secs(30))
                                 {
                                     None => log_warn!("等待脚本执行结果超时"),
                                     Some(Ok(output)) => {
@@ -204,9 +203,10 @@ fn main() {
                         continue;
                     }
                 }
-                // Fix #1: loadjs 和 jseval 都等待 EVAL:/EVAL_ERR: 响应并显示结果
+                // Fix #1: loadjs/jseval/jsinit 都等待 EVAL:/EVAL_ERR: 响应并显示结果
+                // jsinit 也走 eval 等待，避免其 EVAL:initialized 响应污染后续 jseval 通道
                 let is_eval_cmd =
-                    line.starts_with("jseval ") || line.starts_with("loadjs ");
+                    line.starts_with("jseval ") || line.starts_with("loadjs ") || line == "jsinit";
                 if is_eval_cmd {
                     eval_state().clear();
                 }

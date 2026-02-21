@@ -26,8 +26,7 @@ pub(crate) fn commands() -> &'static [(&'static str, &'static str, &'static str)
             ("jsclean", "", "清理 QuickJS 引擎"),
             ("jsrepl", "", "进入 JS REPL 模式（Tab 动态补全）"),
             ("help", "", "显示此帮助信息"),
-            ("exit", "", "退出程序"),
-            ("quit", "", "退出程序"),
+            ("exit", "", "退出程序（quit 同效）"),
         ];
         #[cfg(feature = "frida-gum")]
         {

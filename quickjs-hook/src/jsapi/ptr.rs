@@ -15,27 +15,41 @@ thread_local! {
 /// NativePointer class name
 const NATIVE_POINTER_CLASS_NAME: &[u8] = b"NativePointer\0";
 
-/// Initialize NativePointer class and get the class ID
+/// Initialize NativePointer class and get the class ID.
+///
+/// The class ID is allocated once per thread (thread_local) and reused across
+/// jsinit/jsclean cycles.  We must re-register the class on *every new runtime*
+/// because JS_FreeRuntime destroys all class registrations.
+/// JS_NewClass returns -1 (safely ignored) when the class is already registered
+/// on this runtime, so calling it unconditionally is idempotent.
 fn get_or_init_class_id(ctx: *mut ffi::JSContext) -> u32 {
     NATIVE_POINTER_CLASS_ID.with(|id| {
-        if id.get() == 0 {
-            unsafe {
-                let rt = ffi::JS_GetRuntime(ctx);
+        unsafe {
+            let rt = ffi::JS_GetRuntime(ctx);
+
+            // Allocate a stable class ID (only once per thread lifetime).
+            let class_id = if id.get() == 0 {
                 let mut new_id: u32 = 0;
                 new_id = ffi::JS_NewClassID(&mut new_id);
-
-                let class_def = ffi::JSClassDef {
-                    class_name: NATIVE_POINTER_CLASS_NAME.as_ptr() as *const _,
-                    finalizer: None,
-                    gc_mark: None,
-                    call: None,
-                    exotic: std::ptr::null_mut(),
-                };
-                ffi::JS_NewClass(rt, new_id, &class_def);
                 id.set(new_id);
-            }
+                new_id
+            } else {
+                id.get()
+            };
+
+            // Always register the class on the *current* runtime.
+            // If already registered on this runtime, JS_NewClass1 returns -1 (no-op).
+            let class_def = ffi::JSClassDef {
+                class_name: NATIVE_POINTER_CLASS_NAME.as_ptr() as *const _,
+                finalizer: None,
+                gc_mark: None,
+                call: None,
+                exotic: std::ptr::null_mut(),
+            };
+            let _ = ffi::JS_NewClass(rt, class_id, &class_def);
+
+            class_id
         }
-        id.get()
     })
 }
 

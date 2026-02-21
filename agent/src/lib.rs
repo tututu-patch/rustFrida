@@ -606,17 +606,16 @@ fn install_panic_hook() {
 }
 
 /// 日志函数：socket未连接时缓存，已连接时直接发送
-/// 自动添加 [agent] 前缀
+/// 不添加 [agent] 前缀（host 侧 log_agent! 宏已添加）
 fn log_msg(msg: String) {
-    let prefixed = format!("[agent] {}", msg);
     match GLOBAL_STREAM.get() {
         Some(mut stream) => {
-            let _ = stream.write_all(prefixed.as_bytes());
+            let _ = stream.write_all(msg.as_bytes());
         }
         None => {
             // Socket未连接，缓存日志
             if let Ok(mut cache) = CACHE_LOG.lock() {
-                cache.push(prefixed);
+                cache.push(msg);
             }
         }
     }
@@ -845,6 +844,8 @@ fn process_cmd(command: &str) {
                         }
                     }
                     Err(e) => {
+                        // 用 \r 替换 \n，避免多行错误（含堆栈）被 \n 协议分割
+                        let e = e.replace('\n', "\r");
                         if let Some(mut stream) = GLOBAL_STREAM.get() {
                             let _ = stream.write_all(format!("EVAL_ERR:{}\n", e).as_bytes());
                         }
@@ -854,14 +855,21 @@ fn process_cmd(command: &str) {
         }
         #[cfg(feature = "quickjs")]
         Some("jseval") => {
-            let expr = command.strip_prefix("jseval").unwrap_or("").trim().to_string();
+            let expr = command
+                .strip_prefix("jseval")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if expr.is_empty() {
                 if let Some(mut stream) = GLOBAL_STREAM.get() {
-                    let _ = stream.write_all("EVAL_ERR:[quickjs] 用法: jseval <expression>\n".as_bytes());
+                    let _ = stream
+                        .write_all("EVAL_ERR:[quickjs] 用法: jseval <expression>\n".as_bytes());
                 }
             } else if !quickjs_loader::is_initialized() {
                 if let Some(mut stream) = GLOBAL_STREAM.get() {
-                    let _ = stream.write_all("EVAL_ERR:[quickjs] JS 引擎未初始化，请先执行 jsinit\n".as_bytes());
+                    let _ = stream.write_all(
+                        "EVAL_ERR:[quickjs] JS 引擎未初始化，请先执行 jsinit\n".as_bytes(),
+                    );
                 }
             } else {
                 match quickjs_loader::execute_script(&expr) {
@@ -871,6 +879,8 @@ fn process_cmd(command: &str) {
                         }
                     }
                     Err(e) => {
+                        // 用 \r 替换 \n，避免多行错误（含堆栈）被 \n 协议分割
+                        let e = e.replace('\n', "\r");
                         if let Some(mut stream) = GLOBAL_STREAM.get() {
                             let _ = stream.write_all(format!("EVAL_ERR:{}\n", e).as_bytes());
                         }
@@ -897,7 +907,10 @@ fn process_cmd(command: &str) {
         }
         _ => {
             let cmd_name = command.split_whitespace().next().unwrap_or("(empty)");
-            log_msg(format!("无效命令 '{}'，输入 help 查看可用命令列表\n", cmd_name));
+            log_msg(format!(
+                "无效命令 '{}'，输入 help 查看可用命令列表\n",
+                cmd_name
+            ));
         }
     }
 }
