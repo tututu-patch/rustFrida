@@ -10,7 +10,7 @@ mod types;
 
 use args::Args;
 use clap::Parser;
-use communication::{start_socket_listener, AGENT_MEMFD, AGENT_STAT, GLOBAL_SENDER};
+use communication::{eval_state, start_socket_listener, AGENT_MEMFD, AGENT_STAT, GLOBAL_SENDER};
 use injection::{create_memfd_with_data, inject_to_process, watch_and_inject, AGENT_SO};
 use libc::{close, sleep};
 use repl::{print_help, run_js_repl, CommandCompleter};
@@ -22,6 +22,8 @@ use types::get_string_table_names;
 fn main() {
     logger::print_banner();
     let args = Args::parse();
+    // 初始化 verbose 模式
+    logger::VERBOSE.store(args.verbose, Ordering::Relaxed);
 
     // 初始化 agent.so 的 memfd
     match create_memfd_with_data("wwb_so", AGENT_SO) {
@@ -126,6 +128,11 @@ fn main() {
         }
     };
     rl.set_helper(Some(CommandCompleter::new()));
+    println!(
+        "  {}输入 help 查看命令，exit 退出{}",
+        crate::logger::DIM,
+        crate::logger::RESET
+    );
     loop {
         match rl.readline("rustfrida> ") {
             Ok(line) => {
@@ -146,11 +153,36 @@ fn main() {
                     run_js_repl(sender);
                     continue;
                 }
+                // 校验 hfl/qfl 必须带 <module> <offset> 两个参数
+                {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if matches!(parts.first().copied(), Some("hfl") | Some("qfl"))
+                        && parts.len() < 3
+                    {
+                        log_warn!("用法: {} <module> <offset>", parts[0]);
+                        continue;
+                    }
+                }
+                let is_jseval = line.starts_with("jseval ");
+                if is_jseval {
+                    eval_state().clear();
+                }
                 match sender.send(line) {
                     Ok(_) => {}
                     Err(e) => {
                         log_error!("发送命令失败: {}", e);
                         break;
+                    }
+                }
+                if is_jseval {
+                    match eval_state().recv_timeout(std::time::Duration::from_secs(5)) {
+                        None => println!("\x1b[33m[timeout] 等待执行结果超时\x1b[0m"),
+                        Some(Ok(output)) => {
+                            if !output.is_empty() {
+                                println!("\x1b[32m=> {}\x1b[0m", output);
+                            }
+                        }
+                        Some(Err(err)) => println!("\x1b[31m[JS error] {}\x1b[0m", err),
                     }
                 }
             }

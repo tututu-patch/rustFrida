@@ -136,6 +136,11 @@ pub fn complete(prefix: &str) -> String {
     candidates.join("\n")
 }
 
+/// 检查 JS 引擎是否已初始化
+pub fn is_initialized() -> bool {
+    ENGINE_INITIALIZED.load(Ordering::SeqCst)
+}
+
 /// Cleanup QuickJS resources
 pub fn cleanup() {
     ENGINE_INITIALIZED.store(false, Ordering::SeqCst);

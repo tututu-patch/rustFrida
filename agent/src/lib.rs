@@ -796,8 +796,12 @@ fn process_cmd(command: &str) {
         },
         #[cfg(feature = "quickjs")]
         Some("jsclean") => {
-            quickjs_loader::cleanup();
-            log_msg("[quickjs] Cleaned up\n".to_string());
+            if !quickjs_loader::is_initialized() {
+                log_msg("[quickjs] JS 引擎未初始化\n".to_string());
+            } else {
+                quickjs_loader::cleanup();
+                log_msg("[quickjs] Cleaned up\n".to_string());
+            }
         }
         #[cfg(feature = "quickjs")]
         Some("loadjs") => {
@@ -827,6 +831,32 @@ fn process_cmd(command: &str) {
             }
         }
         #[cfg(feature = "quickjs")]
+        Some("jseval") => {
+            let expr = command.strip_prefix("jseval").unwrap_or("").trim().to_string();
+            if expr.is_empty() {
+                if let Some(mut stream) = GLOBAL_STREAM.get() {
+                    let _ = stream.write_all("EVAL_ERR:[quickjs] 用法: jseval <expression>\n".as_bytes());
+                }
+            } else if !quickjs_loader::is_initialized() {
+                if let Some(mut stream) = GLOBAL_STREAM.get() {
+                    let _ = stream.write_all("EVAL_ERR:[quickjs] JS 引擎未初始化，请先执行 jsinit\n".as_bytes());
+                }
+            } else {
+                match quickjs_loader::execute_script(&expr) {
+                    Ok(result) => {
+                        if let Some(mut stream) = GLOBAL_STREAM.get() {
+                            let _ = stream.write_all(format!("EVAL:{}\n", result).as_bytes());
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(mut stream) = GLOBAL_STREAM.get() {
+                            let _ = stream.write_all(format!("EVAL_ERR:{}\n", e).as_bytes());
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(feature = "quickjs")]
         Some("jscomplete") => {
             let prefix = command.strip_prefix("jscomplete").unwrap_or("").trim();
             let result = quickjs_loader::complete(prefix);
@@ -835,6 +865,9 @@ fn process_cmd(command: &str) {
                 let _ = stream.write_all(format!("COMPLETE:{}\n", result).as_bytes());
             }
         }
-        _ => log_msg("无效命令".to_string()),
+        _ => {
+            let cmd_name = command.split_whitespace().next().unwrap_or("(empty)");
+            log_msg(format!("无效命令 '{}'，输入 help 查看可用命令列表\n", cmd_name));
+        }
     }
 }

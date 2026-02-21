@@ -1,3 +1,12 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 全局 verbose 开关（由 --verbose 标志控制）
+pub static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+pub fn is_verbose() -> bool {
+    VERBOSE.load(Ordering::Relaxed)
+}
+
 /// ANSI 颜色常量
 pub const RESET: &str = "\x1b[0m";
 pub const BOLD: &str = "\x1b[1m";
@@ -61,6 +70,32 @@ macro_rules! log_addr {
             $addr,
             $crate::logger::RESET
         );
+    }};
+}
+
+/// [→] 仅 --verbose 时输出的详细步骤信息
+#[macro_export]
+macro_rules! log_verbose {
+    ($($arg:tt)*) => {{
+        if $crate::logger::is_verbose() {
+            println!("{}{} [→]{} {}", $crate::logger::BOLD, $crate::logger::CYAN, $crate::logger::RESET, format_args!($($arg)*));
+        }
+    }};
+}
+
+/// 地址显示 - 仅 --verbose 时输出
+#[macro_export]
+macro_rules! log_verbose_addr {
+    ($label:expr, $addr:expr) => {{
+        if $crate::logger::is_verbose() {
+            println!(
+                "     {}: {}0x{:x}{}",
+                $label,
+                $crate::logger::DIM,
+                $addr,
+                $crate::logger::RESET
+            );
+        }
     }};
 }
 
