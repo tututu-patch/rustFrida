@@ -185,8 +185,15 @@ pub(crate) fn handle_socket_connection(stream: UnixStream) {
         } else if trimmed == "HELLO_AGENT" {
             log_success!("Agent 已连接");
             STOP_LISTENER.store(true, Ordering::SeqCst);
-            let mut stream_clone = reader.get_ref().try_clone().unwrap();
+            let stream_clone = match reader.get_ref().try_clone() {
+                Ok(s) => s,
+                Err(e) => {
+                    log_error!("clone stream 失败: {}", e);
+                    return;
+                }
+            };
             thread::spawn(move || {
+                let mut stream_clone = stream_clone;
                 let (sd, rx) = channel();
                 match GLOBAL_SENDER.set(sd) {
                     Ok(_) => {}

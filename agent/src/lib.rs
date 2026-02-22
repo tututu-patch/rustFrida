@@ -22,7 +22,6 @@ use libc::{
     sigaction, siginfo_t, SA_ONSTACK, SA_SIGINFO, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV,
 };
 use std::ffi::{c_void, CStr};
-use std::fmt::format;
 use std::io::{BufRead, BufReader, Error, Read, Write};
 use std::mem::{size_of, zeroed};
 use std::os::unix::io::FromRawFd;
@@ -688,7 +687,7 @@ pub extern "C" fn hello_entry(string_table: *mut c_void) -> *mut c_void {
         .unwrap();
     let mut stream = GLOBAL_STREAM.get().unwrap();
     let _ = stream.write("HELLO_AGENT\n".as_bytes()).unwrap();
-    std::thread::sleep(Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(100));
     flush_cached_logs();
 
     // 循环等待命令：BufReader + read_line 确保任意长度命令完整接收（无截断）

@@ -214,8 +214,31 @@ fn write_remote_mem(pid: i32, addr: usize, data: *const u8, size: usize) -> Resu
         let remaining = size - offset;
         let write_size = if remaining >= 8 { 8 } else { remaining };
 
-        // 读取数据
-        let mut word: u64 = 0;
+        // 非对齐尾部（< 8 字节）：先 PEEKTEXT 读取原始 8 字节，再 merge 新字节，
+        // 避免 POKETEXT 始终写满 8 字节时覆盖紧随其后的数据。
+        let mut word: u64 = if write_size < 8 {
+            unsafe { *libc::__errno() = 0 };
+            let existing = unsafe {
+                libc::ptrace(
+                    libc::PTRACE_PEEKTEXT,
+                    pid as pid_t,
+                    (addr + offset) as *mut c_void,
+                    std::ptr::null_mut::<c_void>(),
+                )
+            };
+            let errno_val = unsafe { *libc::__errno() };
+            if existing == -1 && errno_val != 0 {
+                return Err(format!(
+                    "读取内存失败(PEEKTEXT) addr=0x{:x} offset={} errno={}",
+                    addr, offset, errno_val
+                ));
+            }
+            existing as u64
+        } else {
+            0
+        };
+
+        // 合并新字节到 word（低字节 → 低地址，ARM64 小端序）
         unsafe {
             std::ptr::copy_nonoverlapping(
                 data.add(offset),
