@@ -115,18 +115,34 @@ pub(super) unsafe extern "C" fn js_java_hook(
     let ep_offset = get_entry_point_offset(env, art_method);
 
     // ================================================================
-    // Entry-point hooking (GC-safe)
+    // Replace-with-native hooking
     //
-    // Patch ArtMethod.entry_point_ to our thunk. Do NOT modify data_
-    // (GC's ConcurrentCopying scans data_ as a potential heap ref —
-    // writing a non-heap thunk pointer there causes SIGSEGV).
+    // Convert the method to native so ART routes calls through
+    // art_quick_generic_jni_trampoline → data_ (our thunk).
     //
-    // Do NOT set kAccNative — without a valid JNI function in data_,
-    // ART's JNI trampoline would crash. Instead, leave the method as
-    // "compiled code" and let ART jump directly to entry_point_.
+    // This ensures the JNI calling convention:
+    //   x0=JNIEnv*, x1=jobject/jclass, x2-x7=Java args
     //
-    // kAccCompileDontBother prevents JIT from overwriting entry_point_.
+    // Steps:
+    //   1. Write thunk to data_ (JNI function pointer slot)
+    //   2. Set kAccNative + kAccCompileDontBother flags
+    //   3. Write art_quick_generic_jni_trampoline to entry_point_
+    //
+    // GC safety: ArtMethod::VisitRoots() only visits declaring_class_,
+    // NOT data_. With kAccNative set, ART treats data_ as an opaque
+    // JNI function pointer. Writing data_ BEFORE setting flags avoids
+    // any window where GC sees inconsistent state.
     // ================================================================
+
+    // Find the JNI trampoline (required for native hook path)
+    let jni_trampoline = find_jni_trampoline(env, ep_offset);
+    if jni_trampoline == 0 {
+        let err = CString::new("failed to find art_quick_generic_jni_trampoline").unwrap();
+        return ffi::JS_ThrowInternalError(ctx, err.as_ptr());
+    }
+    output_message(&format!(
+        "[java hook] JNI trampoline={:#x}", jni_trampoline
+    ));
 
     // Save original method state for unhook
     let original_access_flags = {
@@ -232,15 +248,22 @@ pub(super) unsafe extern "C" fn js_java_hook(
         );
     }
 
-    // === Modify ArtMethod (GC-safe: only touch access_flags_ and entry_point_) ===
+    // === Modify ArtMethod: convert to native with our thunk as JNI impl ===
+    // Order: data_ first → flags → entry_point_ (GC sees consistent state)
 
-    // 1. Set access flags (kAccCompileDontBother, clear fast-path flags, NO kAccNative)
-    set_hook_flags(art_method);
+    // 1. Write thunk to data_ (native function pointer slot)
+    {
+        let data_ptr = (art_method as usize + data_offset_for(ep_offset)) as *mut u64;
+        std::ptr::write_volatile(data_ptr, thunk as u64);
+    }
 
-    // 2. Write thunk directly to entry_point_ (do NOT touch data_)
+    // 2. Set kAccNative + kAccCompileDontBother, clear fast-path flags
+    set_native_hook_flags(art_method);
+
+    // 3. Write JNI trampoline to entry_point_
     {
         let ep_ptr = (art_method as usize + ep_offset) as *mut u64;
-        std::ptr::write_volatile(ep_ptr, thunk as u64);
+        std::ptr::write_volatile(ep_ptr, jni_trampoline);
         hook_ffi::hook_flush_cache(
             (art_method as usize) as *mut std::ffi::c_void,
             ep_offset + 8,
@@ -254,17 +277,22 @@ pub(super) unsafe extern "C" fn js_java_hook(
         )
     };
     let verify_ep = read_entry_point(art_method, ep_offset);
+    let verify_data = {
+        std::ptr::read_volatile(
+            (art_method as usize + data_offset_for(ep_offset)) as *const u64,
+        )
+    };
 
     output_message(&format!(
-        "[java hook] hook installed: flags={:#x}, entry(thunk)={:#x}",
-        verify_flags, verify_ep
+        "[java hook] hook installed: flags={:#x}, entry(trampoline)={:#x}, data(thunk)={:#x}",
+        verify_flags, verify_ep, verify_data
     ));
 
     // Pre-cache field info for this class (safe from init thread)
     cache_fields_for_class(env, &class_name);
 
     output_message(&format!(
-        "[java hook] hooked {}.{}{} (ArtMethod={:#x}, strategy=entry-point-hook)",
+        "[java hook] hooked {}.{}{} (ArtMethod={:#x}, strategy=replace-with-native)",
         class_name, method_name, actual_sig, art_method
     ));
 
@@ -365,16 +393,22 @@ pub(super) unsafe extern "C" fn js_java_unhook(
     // Remove the native trampoline from the hook engine
     hook_ffi::hook_remove_redirect(hook_data.art_method);
 
-    // Restore original ArtMethod state (access_flags_ + entry_point_ only; data_ was not modified)
+    // Restore original ArtMethod state (data_ + access_flags_ + entry_point_)
+    // Order: entry_point_ first → flags → data_ (reverse of hook installation)
     if let Some(&ep_offset) = ENTRY_POINT_OFFSET.get() {
-        // Restore access_flags_
+        // Restore entry_point_ first (stop routing to our thunk)
+        let ep_ptr = (hook_data.art_method as usize + ep_offset) as *mut u64;
+        std::ptr::write_volatile(ep_ptr, hook_data.original_entry_point);
+
+        // Restore access_flags_ (clears kAccNative)
         let flags_ptr = (hook_data.art_method as usize + ART_METHOD_ACCESS_FLAGS_OFFSET)
             as *mut u32;
         std::ptr::write_volatile(flags_ptr, hook_data.original_access_flags);
 
-        // Restore entry_point
-        let ep_ptr = (hook_data.art_method as usize + ep_offset) as *mut u64;
-        std::ptr::write_volatile(ep_ptr, hook_data.original_entry_point);
+        // Restore data_
+        let data_ptr = (hook_data.art_method as usize + data_offset_for(ep_offset))
+            as *mut u64;
+        std::ptr::write_volatile(data_ptr, hook_data.original_data);
 
         hook_ffi::hook_flush_cache(
             (hook_data.art_method as usize) as *mut std::ffi::c_void,
