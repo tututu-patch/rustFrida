@@ -12,8 +12,7 @@ pub(super) unsafe fn delete_global_ref_best_effort(class_global_ref: usize) {
         return;
     }
     if let Ok(env) = get_thread_env() {
-        let delete_global_ref: DeleteGlobalRefFn =
-            jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
+        let delete_global_ref: DeleteGlobalRefFn = jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
         delete_global_ref(env, class_global_ref as *mut std::ffi::c_void);
     }
 }
@@ -110,10 +109,7 @@ impl Drop for JavaHookInstallGuard {
                     (self.art_method as usize + self.entry_point_offset) as *mut u64,
                     self.original_entry_point,
                 );
-                hook_ffi::hook_flush_cache(
-                    self.art_method as *mut std::ffi::c_void,
-                    self.entry_point_offset + 8,
-                );
+                hook_ffi::hook_flush_cache(self.art_method as *mut std::ffi::c_void, self.entry_point_offset + 8);
             }
 
             if self.redirect_installed {
@@ -133,10 +129,7 @@ impl Drop for JavaHookInstallGuard {
     }
 }
 
-pub(super) unsafe fn alloc_art_method_clone(
-    art_method: u64,
-    clone_size: usize,
-) -> Result<u64, String> {
+pub(super) unsafe fn alloc_art_method_clone(art_method: u64, clone_size: usize) -> Result<u64, String> {
     let ptr = libc::malloc(clone_size);
     if ptr.is_null() {
         return Err("malloc failed for ArtMethod backup clone".to_string());
@@ -145,10 +138,7 @@ pub(super) unsafe fn alloc_art_method_clone(
     Ok(ptr as u64)
 }
 
-pub(super) unsafe fn create_class_global_ref(
-    env: JniEnv,
-    class_name: &str,
-) -> Result<usize, String> {
+pub(super) unsafe fn create_class_global_ref(env: JniEnv, class_name: &str) -> Result<usize, String> {
     let cls = find_class_safe(env, class_name);
     if cls.is_null() {
         return Err(format!("FindClass('{}') failed for global ref", class_name));
@@ -205,10 +195,7 @@ pub(super) unsafe fn update_original_method_flags_for_hook(
         removed_flags |= K_ACC_SKIP_ACCESS_CHECKS;
     }
     let new_flags = (original_access_flags & !removed_flags) | k_acc_compile_dont_bother();
-    std::ptr::write_volatile(
-        (art_method as usize + access_flags_offset) as *mut u32,
-        new_flags,
-    );
+    std::ptr::write_volatile((art_method as usize + access_flags_offset) as *mut u32, new_flags);
     output_message(&format!(
         "[java hook] Step 5 original flags: {:#x} → {:#x}",
         original_access_flags, new_flags
@@ -255,14 +242,8 @@ pub(super) unsafe fn install_per_method_router_hook(
         if bridge.nterp_entry_point != 0 && original_entry_point == bridge.nterp_entry_point {
             let interp_bridge = bridge.quick_to_interpreter_bridge;
             if interp_bridge != 0 {
-                std::ptr::write_volatile(
-                    (art_method as usize + ep_offset) as *mut u64,
-                    interp_bridge,
-                );
-                hook_ffi::hook_flush_cache(
-                    (art_method as usize + ep_offset) as *mut std::ffi::c_void,
-                    8,
-                );
+                std::ptr::write_volatile((art_method as usize + ep_offset) as *mut u64, interp_bridge);
+                hook_ffi::hook_flush_cache((art_method as usize + ep_offset) as *mut std::ffi::c_void, 8);
                 output_message(&format!(
                     "[java hook] Step 9: nterp 降级: ep {:#x} → interpreter_bridge {:#x}",
                     original_entry_point, interp_bridge

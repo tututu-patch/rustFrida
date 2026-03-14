@@ -25,18 +25,10 @@ macro_rules! define_memory_read {
             }
             let addr = match get_addr_from_arg($ctx_id, JSValue(*argv)) {
                 Some(a) => a,
-                None => {
-                    return ffi::JS_ThrowTypeError(
-                        $ctx_id,
-                        b"Invalid pointer\0".as_ptr() as *const _,
-                    )
-                }
+                None => return ffi::JS_ThrowTypeError($ctx_id, b"Invalid pointer\0".as_ptr() as *const _),
             };
             if !is_addr_accessible(addr, $size) {
-                return ffi::JS_ThrowRangeError(
-                    $ctx_id,
-                    b"Invalid memory address\0".as_ptr() as *const _,
-                );
+                return ffi::JS_ThrowRangeError($ctx_id, b"Invalid memory address\0".as_ptr() as *const _);
             }
             let $val_id = std::ptr::read_unaligned(addr as *const $rust_type);
             $convert
@@ -63,10 +55,7 @@ pub(super) unsafe extern "C" fn memory_read_cstring(
     argv: *mut ffi::JSValue,
 ) -> ffi::JSValue {
     if argc < 1 {
-        return ffi::JS_ThrowTypeError(
-            ctx,
-            b"readCString() requires 1 argument\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowTypeError(ctx, b"readCString() requires 1 argument\0".as_ptr() as *const _);
     }
 
     let addr = match get_addr_from_arg(ctx, JSValue(*argv)) {
@@ -128,10 +117,7 @@ pub(super) unsafe extern "C" fn memory_read_byte_array(
     argv: *mut ffi::JSValue,
 ) -> ffi::JSValue {
     if argc < 2 {
-        return ffi::JS_ThrowTypeError(
-            ctx,
-            b"readByteArray() requires 2 arguments\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowTypeError(ctx, b"readByteArray() requires 2 arguments\0".as_ptr() as *const _);
     }
 
     let addr = match get_addr_from_arg(ctx, JSValue(*argv)) {
@@ -141,18 +127,10 @@ pub(super) unsafe extern "C" fn memory_read_byte_array(
 
     let length_raw = match JSValue(*argv.add(1)).to_i64(ctx) {
         Some(v) => v,
-        None => {
-            return ffi::JS_ThrowTypeError(
-                ctx,
-                b"readByteArray: length must be a number\0".as_ptr() as *const _,
-            )
-        }
+        None => return ffi::JS_ThrowTypeError(ctx, b"readByteArray: length must be a number\0".as_ptr() as *const _),
     };
     if length_raw <= 0 {
-        return ffi::JS_ThrowRangeError(
-            ctx,
-            b"readByteArray: length must be positive\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowRangeError(ctx, b"readByteArray: length must be positive\0".as_ptr() as *const _);
     }
     const MAX_READ_SIZE: i64 = 1024 * 1024 * 1024; // 1GB
     if length_raw > MAX_READ_SIZE {

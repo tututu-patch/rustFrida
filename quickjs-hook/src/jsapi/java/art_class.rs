@@ -38,9 +38,7 @@ static ART_CLASS_SPEC: OnceLock<Option<ArtClassSpec>> = OnceLock::new();
 
 /// 获取 ArtClass 偏移规格（首次调用时探测并缓存）
 pub(super) fn get_art_class_spec(env: JniEnv) -> Option<&'static ArtClassSpec> {
-    ART_CLASS_SPEC
-        .get_or_init(|| probe_art_class_spec(env))
-        .as_ref()
+    ART_CLASS_SPEC.get_or_init(|| probe_art_class_spec(env)).as_ref()
 }
 
 /// 探测 ArtClass 布局偏移（对标 Frida getArtClassSpec）
@@ -61,14 +59,11 @@ fn probe_art_class_spec(env: JniEnv) -> Option<ArtClassSpec> {
         // Step 1: 获取 java/lang/Thread 的 jclass，转为 global ref（GC 安全）
         let find_class: FindClassFn = jni_fn!(env, FindClassFn, JNI_FIND_CLASS);
         let get_field_id: GetFieldIdFn = jni_fn!(env, GetFieldIdFn, JNI_GET_FIELD_ID);
-        let get_static_field_id: GetStaticFieldIdFn =
-            jni_fn!(env, GetStaticFieldIdFn, JNI_GET_STATIC_FIELD_ID);
+        let get_static_field_id: GetStaticFieldIdFn = jni_fn!(env, GetStaticFieldIdFn, JNI_GET_STATIC_FIELD_ID);
         let get_method_id: GetMethodIdFn = jni_fn!(env, GetMethodIdFn, JNI_GET_METHOD_ID);
         let new_global_ref: NewGlobalRefFn = jni_fn!(env, NewGlobalRefFn, JNI_NEW_GLOBAL_REF);
-        let delete_global_ref: DeleteGlobalRefFn =
-            jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
-        let delete_local_ref: DeleteLocalRefFn =
-            jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
+        let delete_global_ref: DeleteGlobalRefFn = jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
+        let delete_local_ref: DeleteLocalRefFn = jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
 
         let c_thread = std::ffi::CString::new("java/lang/Thread").unwrap();
         let cls_local = find_class(env, c_thread.as_ptr());
@@ -95,18 +90,11 @@ fn probe_art_class_spec(env: JniEnv) -> Option<ArtClassSpec> {
         let c_get_name_sig = std::ffi::CString::new("()Ljava/lang/String;").unwrap();
 
         jni_check_exc(env);
-        let static_field_id =
-            get_static_field_id(env, cls_global, c_max_pri.as_ptr(), c_int_sig.as_ptr());
+        let static_field_id = get_static_field_id(env, cls_global, c_max_pri.as_ptr(), c_int_sig.as_ptr());
         jni_check_exc(env);
-        let instance_field_id =
-            get_field_id(env, cls_global, c_name.as_ptr(), c_string_sig.as_ptr());
+        let instance_field_id = get_field_id(env, cls_global, c_name.as_ptr(), c_string_sig.as_ptr());
         jni_check_exc(env);
-        let method_id = get_method_id(
-            env,
-            cls_global,
-            c_get_name.as_ptr(),
-            c_get_name_sig.as_ptr(),
-        );
+        let method_id = get_method_id(env, cls_global, c_get_name.as_ptr(), c_get_name_sig.as_ptr());
         jni_check_exc(env);
 
         if static_field_id.is_null() && instance_field_id.is_null() && method_id.is_null() {
@@ -123,12 +111,9 @@ fn probe_art_class_spec(env: JniEnv) -> Option<ArtClassSpec> {
         // Step 3: 解码 ID → 真实指针
         // jfieldID 在 API 30+ 可能是 opaque index 而非 ArtField*，需解码
         // jmethodID 可能是 opaque (API 30+)，使用 decode_method_id
-        let art_field_static =
-            super::reflect::decode_field_id(env, cls_global, static_field_id as u64, true);
-        let art_field_instance =
-            super::reflect::decode_field_id(env, cls_global, instance_field_id as u64, false);
-        let art_method_instance =
-            super::reflect::decode_method_id(env, cls_global, method_id as u64, false);
+        let art_field_static = super::reflect::decode_field_id(env, cls_global, static_field_id as u64, true);
+        let art_field_instance = super::reflect::decode_field_id(env, cls_global, instance_field_id as u64, false);
+        let art_method_instance = super::reflect::decode_method_id(env, cls_global, method_id as u64, false);
 
         output_message(&format!(
             "[art class] 解码后: static_field={:#x}, instance_field={:#x}, method={:#x}",
@@ -159,10 +144,7 @@ fn probe_art_class_spec(env: JniEnv) -> Option<ArtClassSpec> {
 
         output_message(&format!(
             "[art class] 探测成功: ifields={}, sfields={}, methods={}, copied_methods={}",
-            spec.ifields_offset,
-            spec.sfields_offset,
-            spec.methods_offset,
-            spec.copied_methods_offset
+            spec.ifields_offset, spec.sfields_offset, spec.methods_offset, spec.copied_methods_offset
         ));
 
         Some(spec)
@@ -435,9 +417,7 @@ where
 
     if !to_runnable_sym.is_null() {
         // 尝试找反向转换函数
-        let to_suspended_sym = libart_dlsym(
-            "_ZN3art6Thread40TransitionToSuspendedAndRunCheckpointsENS_11ThreadStateE",
-        );
+        let to_suspended_sym = libart_dlsym("_ZN3art6Thread40TransitionToSuspendedAndRunCheckpointsENS_11ThreadStateE");
 
         type ToRunnableFn = unsafe extern "C" fn(this: u64) -> u32;
         let transition: ToRunnableFn = std::mem::transmute(to_runnable_sym);
@@ -585,7 +565,5 @@ pub(super) unsafe fn is_valid_jni_ref(env: JniEnv, obj: *mut std::ffi::c_void) -
         return false;
     }
 
-    with_runnable_thread(env, || {
-        decode_jobject(env, obj).is_some()
-    })
+    with_runnable_thread(env, || decode_jobject(env, obj).is_some())
 }

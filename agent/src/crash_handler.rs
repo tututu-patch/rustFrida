@@ -2,8 +2,8 @@
 
 use crate::communication::{log_msg, write_stream_raw};
 use libc::{
-    c_char, c_int, c_void, sigaction, siginfo_t, SA_ONSTACK, SA_SIGINFO, SIGABRT, SIGBUS, SIGFPE,
-    SIGILL, SIGSEGV, SIGTRAP,
+    c_char, c_int, c_void, sigaction, siginfo_t, SA_ONSTACK, SA_SIGINFO, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV,
+    SIGTRAP,
 };
 use std::ffi::CStr;
 use std::mem::zeroed;
@@ -71,10 +71,7 @@ fn resolve_symbol(addr: usize) -> (Option<String>, Option<String>, usize) {
 
             // 获取符号名
             let sym_name = if !info.dli_sname.is_null() {
-                CStr::from_ptr(info.dli_sname)
-                    .to_str()
-                    .ok()
-                    .map(|s| s.to_string())
+                CStr::from_ptr(info.dli_sname).to_str().ok().map(|s| s.to_string())
             } else {
                 None
             };
@@ -277,11 +274,7 @@ extern "C" fn crash_signal_handler(sig: c_int, info: *mut siginfo_t, ucontext: *
             _ => "Unknown signal",
         };
 
-        let fault_addr = if !info.is_null() {
-            (*info).si_addr() as usize
-        } else {
-            0
-        };
+        let fault_addr = if !info.is_null() { (*info).si_addr() as usize } else { 0 };
 
         // 构建崩溃信息
         let mut crash_msg = format!(
@@ -422,12 +415,7 @@ pub(crate) fn install_panic_hook() {
             .payload()
             .downcast_ref::<&str>()
             .copied()
-            .or_else(|| {
-                panic_info
-                    .payload()
-                    .downcast_ref::<String>()
-                    .map(|s| s.as_str())
-            })
+            .or_else(|| panic_info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("unknown panic");
 
         let msg = format!(

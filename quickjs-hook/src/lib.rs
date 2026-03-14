@@ -63,10 +63,7 @@ pub(crate) fn qbdi_output_dir() -> Option<&'static str> {
 }
 
 pub(crate) fn qbdi_helper_blob() -> Option<Vec<u8>> {
-    QBDI_HELPER_BLOB
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    QBDI_HELPER_BLOB.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Global JS engine instance (protected by Mutex).
@@ -89,8 +86,7 @@ pub(crate) fn mark_js_engine_owner_current_thread() {
 #[inline]
 pub(crate) fn clear_js_engine_owner_current_thread() {
     let current = current_thread_id_u64();
-    let _ =
-        JS_ENGINE_OWNER_THREAD.compare_exchange(current, 0, Ordering::AcqRel, Ordering::Relaxed);
+    let _ = JS_ENGINE_OWNER_THREAD.compare_exchange(current, 0, Ordering::AcqRel, Ordering::Relaxed);
 }
 
 struct JsEngineOwnerGuard;
@@ -232,9 +228,7 @@ pub fn load_script(script: &str) -> Result<String, String> {
     let result = if value.is_undefined() {
         "undefined".to_string()
     } else {
-        value
-            .to_string(engine.context().as_ptr())
-            .unwrap_or_default()
+        value.to_string(engine.context().as_ptr()).unwrap_or_default()
     };
     value.free(engine.context().as_ptr());
     Ok(result)

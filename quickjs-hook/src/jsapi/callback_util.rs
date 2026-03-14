@@ -62,9 +62,7 @@ pub(crate) unsafe fn acquire_js_engine_for_callback(
                 return Some(JsEngineCallbackGuard::Locked { _guard: g });
             }
             Err(std::sync::TryLockError::WouldBlock) => {
-                if crate::JS_ENGINE_OWNER_THREAD.load(std::sync::atomic::Ordering::Acquire)
-                    == current_thread
-                {
+                if crate::JS_ENGINE_OWNER_THREAD.load(std::sync::atomic::Ordering::Acquire) == current_thread {
                     ffi::qjs_update_stack_top(ctx);
                     return Some(JsEngineCallbackGuard::Reentrant);
                 }
@@ -89,9 +87,7 @@ pub(crate) unsafe fn acquire_js_engine_for_callback(
             Err(std::sync::TryLockError::Poisoned(e)) => {
                 crate::mark_js_engine_owner_current_thread();
                 ffi::qjs_update_stack_top(ctx);
-                return Some(JsEngineCallbackGuard::Locked {
-                    _guard: e.into_inner(),
-                });
+                return Some(JsEngineCallbackGuard::Locked { _guard: e.into_inner() });
             }
         }
     }
@@ -101,11 +97,7 @@ pub(crate) unsafe fn acquire_js_engine_for_callback(
 ///
 /// Returns true if an exception was found (caller should do cleanup and return).
 /// Handles secondary exceptions from toString gracefully.
-pub(crate) unsafe fn handle_js_exception(
-    ctx: *mut ffi::JSContext,
-    result: ffi::JSValue,
-    context_name: &str,
-) -> bool {
+pub(crate) unsafe fn handle_js_exception(ctx: *mut ffi::JSContext, result: ffi::JSValue, context_name: &str) -> bool {
     if ffi::qjs_is_exception(result) == 0 {
         return false;
     }
@@ -236,8 +228,7 @@ pub(crate) unsafe fn extract_pointer_address(
     if let Some(a) = arg.to_u64(ctx) {
         return Ok(a);
     }
-    let msg = std::ffi::CString::new(format!("{}() argument must be a pointer", func_name))
-        .unwrap_or_default();
+    let msg = std::ffi::CString::new(format!("{}() argument must be a pointer", func_name)).unwrap_or_default();
     Err(ffi::JS_ThrowTypeError(ctx, msg.as_ptr()))
 }
 
@@ -270,22 +261,14 @@ pub(crate) unsafe fn throw_type_error(ctx: *mut ffi::JSContext, error_msg: &[u8]
 }
 
 /// Throw an internal error from an owned Rust string.
-pub(crate) unsafe fn throw_internal_error(
-    ctx: *mut ffi::JSContext,
-    message: impl AsRef<str>,
-) -> ffi::JSValue {
+pub(crate) unsafe fn throw_internal_error(ctx: *mut ffi::JSContext, message: impl AsRef<str>) -> ffi::JSValue {
     let err = CString::new(message.as_ref()).unwrap();
     ffi::JS_ThrowInternalError(ctx, err.as_ptr())
 }
 
 /// Set a u64 property on a JS object as BigUint64.
 /// 封装 CString → JS_NewAtom → JS_NewBigUint64 → qjs_set_property → JS_FreeAtom 模式。
-pub(crate) unsafe fn set_js_u64_property(
-    ctx: *mut ffi::JSContext,
-    obj: ffi::JSValue,
-    name: &str,
-    value: u64,
-) {
+pub(crate) unsafe fn set_js_u64_property(ctx: *mut ffi::JSContext, obj: ffi::JSValue, name: &str, value: u64) {
     let cname = std::ffi::CString::new(name).unwrap();
     let atom = ffi::JS_NewAtom(ctx, cname.as_ptr());
     let val = ffi::JS_NewBigUint64(ctx, value);
@@ -307,11 +290,7 @@ pub(crate) unsafe fn set_js_cfunction_property(
 }
 
 /// Read a u64-like property from a JS object. Non-numeric values fall back to 0.
-pub(crate) unsafe fn get_js_u64_property(
-    ctx: *mut ffi::JSContext,
-    obj: ffi::JSValue,
-    name: &str,
-) -> u64 {
+pub(crate) unsafe fn get_js_u64_property(ctx: *mut ffi::JSContext, obj: ffi::JSValue, name: &str) -> u64 {
     let prop = JSValue(obj).get_property(ctx, name);
     let value = prop.to_u64(ctx).unwrap_or(0);
     prop.free(ctx);
@@ -324,10 +303,7 @@ pub(crate) unsafe fn js_value_to_u64_or_zero(ctx: *mut ffi::JSContext, value: JS
 }
 
 /// Encode a u64 as Number when it fits JS safe integer range, otherwise BigUint64.
-pub(crate) unsafe fn js_u64_to_js_number_or_bigint(
-    ctx: *mut ffi::JSContext,
-    value: u64,
-) -> ffi::JSValue {
+pub(crate) unsafe fn js_u64_to_js_number_or_bigint(ctx: *mut ffi::JSContext, value: u64) -> ffi::JSValue {
     if value <= JS_MAX_SAFE_INTEGER {
         ffi::qjs_new_int64(ctx, value as i64)
     } else {
@@ -336,10 +312,7 @@ pub(crate) unsafe fn js_u64_to_js_number_or_bigint(
 }
 
 /// Encode an i64 as Number when it fits JS safe integer range, otherwise BigInt64.
-pub(crate) unsafe fn js_i64_to_js_number_or_bigint(
-    ctx: *mut ffi::JSContext,
-    value: i64,
-) -> ffi::JSValue {
+pub(crate) unsafe fn js_i64_to_js_number_or_bigint(ctx: *mut ffi::JSContext, value: i64) -> ffi::JSValue {
     if value.unsigned_abs() <= JS_MAX_SAFE_INTEGER {
         ffi::qjs_new_int64(ctx, value)
     } else {
@@ -350,10 +323,7 @@ pub(crate) unsafe fn js_i64_to_js_number_or_bigint(
 /// Duplicate a JS callback value and return its raw bytes for Send/Sync-safe storage.
 ///
 /// The caller is responsible for eventually freeing the duplicated value via qjs_free_value.
-pub(crate) unsafe fn dup_callback_to_bytes(
-    ctx: *mut ffi::JSContext,
-    callback: ffi::JSValue,
-) -> [u8; 16] {
+pub(crate) unsafe fn dup_callback_to_bytes(ctx: *mut ffi::JSContext, callback: ffi::JSValue) -> [u8; 16] {
     let callback_dup = ffi::qjs_dup_value(ctx, callback);
     let mut bytes = [0u8; 16];
     std::ptr::copy_nonoverlapping(

@@ -25,9 +25,7 @@ pub(crate) fn hook_error_message(code: i32) -> &'static [u8] {
         HOOK_ERROR_MPROTECT_FAILED => b"mprotect failed: cannot change memory protection\0",
         HOOK_ERROR_NOT_FOUND => b"hook not found at address\0",
         HOOK_ERROR_BUFFER_TOO_SMALL => b"buffer too small for jump instruction\0",
-        HOOK_ERROR_WXSHADOW_FAILED => {
-            b"wxshadow prctl failed: kernel may not support shadow pages\0"
-        }
+        HOOK_ERROR_WXSHADOW_FAILED => b"wxshadow prctl failed: kernel may not support shadow pages\0",
         _ => b"unknown hook error\0",
     }
 }

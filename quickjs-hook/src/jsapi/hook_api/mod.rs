@@ -12,11 +12,11 @@ use crate::jsapi::util::add_cfunction_to_object;
 
 use callback::{in_flight_native_hook_callbacks, wait_for_in_flight_native_hook_callbacks};
 use functions::{js_call_native, js_hook, js_unhook};
-use registry::HOOK_REGISTRY;
 #[cfg(feature = "qbdi")]
 pub use qbdi::preload_qbdi_helper;
 #[cfg(feature = "qbdi")]
 pub use qbdi::shutdown_qbdi_helper;
+use registry::HOOK_REGISTRY;
 
 /// Register hook API
 pub fn register_hook_api(ctx: &JSContext) {
@@ -64,8 +64,7 @@ pub fn cleanup_hooks() {
         for (_addr, data) in registry {
             unsafe {
                 let ctx = data.ctx as *mut ffi::JSContext;
-                let callback: ffi::JSValue =
-                    std::ptr::read(data.callback_bytes.as_ptr() as *const ffi::JSValue);
+                let callback: ffi::JSValue = std::ptr::read(data.callback_bytes.as_ptr() as *const ffi::JSValue);
                 ffi::qjs_free_value(ctx, callback);
             }
         }

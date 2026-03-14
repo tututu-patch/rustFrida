@@ -1,7 +1,7 @@
+use crate::data::TraceBundleMetadata;
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
-use crate::data::TraceBundleMetadata;
-use qbdi::{VM, VirtualStack};
+use qbdi::{VirtualStack, VM};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,24 +51,15 @@ unsafe impl Send for ManagedVm {}
 
 impl TraceQueueBudget {
     pub(crate) fn reserve(&self, bytes: usize) {
-        let mut pending = self
-            .pending_bytes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut pending = self.pending_bytes.lock().unwrap_or_else(|e| e.into_inner());
         while *pending != 0 && pending.saturating_add(bytes) > TRACE_MAX_PENDING_BYTES {
-            pending = self
-                .condvar
-                .wait(pending)
-                .unwrap_or_else(|e| e.into_inner());
+            pending = self.condvar.wait(pending).unwrap_or_else(|e| e.into_inner());
         }
         *pending = pending.saturating_add(bytes);
     }
 
     pub(crate) fn release(&self, bytes: usize) {
-        let mut pending = self
-            .pending_bytes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut pending = self.pending_bytes.lock().unwrap_or_else(|e| e.into_inner());
         *pending = pending.saturating_sub(bytes);
         self.condvar.notify_all();
     }
@@ -190,26 +181,18 @@ pub(crate) fn set_trace_output_dir(path: &str) {
 }
 
 pub(crate) fn set_trace_bundle_metadata(module_path: String, module_base: u64) {
-    *TRACE_BUNDLE_METADATA
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(TraceBundleMetadata {
+    *TRACE_BUNDLE_METADATA.lock().unwrap_or_else(|e| e.into_inner()) = Some(TraceBundleMetadata {
         module_path,
         module_base,
     });
 }
 
 pub(crate) fn get_trace_bundle_metadata() -> Option<TraceBundleMetadata> {
-    TRACE_BUNDLE_METADATA
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    TRACE_BUNDLE_METADATA.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 #[no_mangle]
-pub extern "C" fn qbdi_trace_set_bundle_metadata(
-    module_path: *const c_char,
-    module_base: u64,
-) -> i32 {
+pub extern "C" fn qbdi_trace_set_bundle_metadata(module_path: *const c_char, module_base: u64) -> i32 {
     clear_last_error();
     if module_path.is_null() {
         set_last_error("module_path is null");
@@ -238,15 +221,11 @@ pub(crate) fn helper_log(msg: &str) {
         let tag = b"rustFrida\0";
         let mut buf = msg.as_bytes().to_vec();
         buf.push(0);
-        let _ =
-            __android_log_write(4, tag.as_ptr() as *const c_char, buf.as_ptr() as *const c_char);
+        let _ = __android_log_write(4, tag.as_ptr() as *const c_char, buf.as_ptr() as *const c_char);
     }
 }
 
-pub(crate) fn with_vm<R>(
-    handle: u64,
-    f: impl FnOnce(&mut ManagedVm) -> Result<R, String>,
-) -> Result<R, String> {
+pub(crate) fn with_vm<R>(handle: u64, f: impl FnOnce(&mut ManagedVm) -> Result<R, String>) -> Result<R, String> {
     let mut registry = VM_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
     let managed = registry
         .get_mut(&handle)

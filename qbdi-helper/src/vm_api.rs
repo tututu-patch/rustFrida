@@ -1,6 +1,6 @@
 use crate::state::{
-    clear_last_error, decode_args, decode_memory_access_type, set_last_error, with_vm, ManagedVm,
-    NEXT_VM_HANDLE, VM_REGISTRY,
+    clear_last_error, decode_args, decode_memory_access_type, set_last_error, with_vm, ManagedVm, NEXT_VM_HANDLE,
+    VM_REGISTRY,
 };
 use crate::writer::flush_thread_local_chunk;
 use qbdi::{simulate_call, GPRState, VirtualStack};
@@ -215,12 +215,7 @@ pub extern "C" fn qbdi_vm_clear_virtual_stacks(handle: u64) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn qbdi_vm_simulate_call(
-    handle: u64,
-    return_addr: u64,
-    args_ptr: *const u64,
-    args_len: u32,
-) -> i32 {
+pub extern "C" fn qbdi_vm_simulate_call(handle: u64, return_addr: u64, args_ptr: *const u64, args_len: u32) -> i32 {
     clear_last_error();
     let args = match decode_args(args_ptr, args_len) {
         Ok(args) => args,
@@ -292,7 +287,9 @@ pub extern "C" fn qbdi_vm_call(
             .ok_or_else(|| format!("qbdi call({:#x}) failed", function))
     }) {
         Ok(value) => {
-            unsafe { *result_out = value; }
+            unsafe {
+                *result_out = value;
+            }
             0
         }
         Err(err) => {
@@ -330,7 +327,9 @@ pub extern "C" fn qbdi_vm_switch_stack_and_call(
             .ok_or_else(|| format!("qbdi switchStackAndCall({:#x}) failed", function))
     }) {
         Ok(value) => {
-            unsafe { *result_out = value; }
+            unsafe {
+                *result_out = value;
+            }
             0
         }
         Err(err) => {
@@ -356,7 +355,9 @@ pub extern "C" fn qbdi_vm_get_gpr(handle: u64, reg: u32, value_out: *mut u64) ->
             .ok_or_else(|| format!("invalid gpr index {}", reg))
     }) {
         Ok(value) => {
-            unsafe { *value_out = value; }
+            unsafe {
+                *value_out = value;
+            }
             0
         }
         Err(err) => {
@@ -389,12 +390,7 @@ pub extern "C" fn qbdi_vm_set_gpr(handle: u64, reg: u32, value: u64) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn qbdi_vm_get_fpr(
-    handle: u64,
-    reg: u32,
-    lo_out: *mut u64,
-    hi_out: *mut u64,
-) -> i32 {
+pub extern "C" fn qbdi_vm_get_fpr(handle: u64, reg: u32, lo_out: *mut u64, hi_out: *mut u64) -> i32 {
     clear_last_error();
     if lo_out.is_null() || hi_out.is_null() {
         set_last_error("lo_out or hi_out is null");
@@ -449,7 +445,9 @@ pub extern "C" fn qbdi_vm_get_errno(handle: u64, value_out: *mut u32) -> i32 {
     }
     match with_vm(handle, |managed| Ok(managed.vm.get_errno())) {
         Ok(value) => {
-            unsafe { *value_out = value; }
+            unsafe {
+                *value_out = value;
+            }
             0
         }
         Err(err) => {

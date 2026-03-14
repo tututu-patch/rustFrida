@@ -86,9 +86,7 @@ pub(super) static ART_THREAD_SPEC: OnceLock<Option<ArtThreadSpec>> = OnceLock::n
 
 /// 获取 ArtThread 偏移规格（首次调用时探测并缓存）
 pub(super) fn get_art_thread_spec(env: JniEnv) -> Option<&'static ArtThreadSpec> {
-    ART_THREAD_SPEC
-        .get_or_init(|| probe_art_thread_spec(env))
-        .as_ref()
+    ART_THREAD_SPEC.get_or_init(|| probe_art_thread_spec(env)).as_ref()
 }
 
 /// 探测 ArtThread 布局偏移（对标 Frida _getArtThreadSpec）
@@ -191,8 +189,13 @@ fn probe_art_thread_spec(env: JniEnv) -> Option<ArtThreadSpec> {
     output_message(&format!(
         "[art thread] 探测成功 (API {}): exception={}, managed_stack={}, self={}, top_handle_scope={}, \
          is_exception_reported={:?}, throw_location={:?}",
-        api_level, exception_offset, managed_stack_offset, self_offset, top_handle_scope_offset,
-        is_exception_reported_offset, throw_location_offset
+        api_level,
+        exception_offset,
+        managed_stack_offset,
+        self_offset,
+        top_handle_scope_offset,
+        is_exception_reported_offset,
+        throw_location_offset
     ));
 
     Some(ArtThreadSpec {

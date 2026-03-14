@@ -22,12 +22,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 
 use super::art_method::{
-    get_instrumentation_spec, read_entry_point, try_invalidate_jit_cache, ArtBridgeFunctions,
-    ART_BRIDGE_FUNCTIONS,
+    get_instrumentation_spec, read_entry_point, try_invalidate_jit_cache, ArtBridgeFunctions, ART_BRIDGE_FUNCTIONS,
 };
-use super::art_thread::{
-    get_art_thread_spec, get_managed_stack_spec, ArtThreadSpec, ART_THREAD_SPEC,
-};
+use super::art_thread::{get_art_thread_spec, get_managed_stack_spec, ArtThreadSpec, ART_THREAD_SPEC};
 use super::callback::{get_replacement_method, is_replacement_method};
 use super::jni_core::{get_runtime_addr, JniEnv};
 use super::PAC_STRIP_MASK;
@@ -75,9 +72,7 @@ unsafe fn set_forced_interpret_only() {
     let spec = match get_instrumentation_spec() {
         Some(s) => s,
         None => {
-            output_message(
-                "[instrumentation] InstrumentationSpec 不可用，跳过 forced_interpret_only",
-            );
+            output_message("[instrumentation] InstrumentationSpec 不可用，跳过 forced_interpret_only");
             return;
         }
     };
@@ -257,9 +252,7 @@ pub(super) fn ensure_art_controller_initialized(
                 name, addr, actual_target, trampoline as u64
             ));
         } else {
-            output_message(&format!(
-                "[artController] Layer 1: {} hook 安装失败: {:#x}", name, addr
-            ));
+            output_message(&format!("[artController] Layer 1: {} hook 安装失败: {:#x}", name, addr));
         }
     }
 
@@ -280,11 +273,13 @@ pub(super) fn ensure_art_controller_initialized(
         if ret == 0 {
             do_call_targets.push(addr);
             output_message(&format!(
-                "[artController] Layer 2: DoCall[{}] hook 安装成功: {:#x}", i, addr
+                "[artController] Layer 2: DoCall[{}] hook 安装成功: {:#x}",
+                i, addr
             ));
         } else {
             output_message(&format!(
-                "[artController] Layer 2: DoCall[{}] hook 安装失败: {:#x} (ret={})", i, addr, ret
+                "[artController] Layer 2: DoCall[{}] hook 安装失败: {:#x} (ret={})",
+                i, addr, ret
             ));
         }
     }
@@ -307,7 +302,8 @@ pub(super) fn ensure_art_controller_initialized(
         if ret == 0 {
             gc_hook_targets.push(bridge.gc_copying_phase);
             output_message(&format!(
-                "[artController] GC CopyingPhase hook 安装成功: {:#x}", bridge.gc_copying_phase
+                "[artController] GC CopyingPhase hook 安装成功: {:#x}",
+                bridge.gc_copying_phase
             ));
         } else {
             output_message(&format!(
@@ -453,7 +449,11 @@ pub(super) fn ensure_art_controller_initialized(
         gc_hook_targets.len(),
         if oat_header_hook_target != 0 { "active" } else { "none" },
         if fixup_hook_target != 0 { "active" } else { "none" },
-        if pretty_method_hook_target != 0 { "active" } else { "none" },
+        if pretty_method_hook_target != 0 {
+            "active"
+        } else {
+            "none"
+        },
     ));
 
     *controller = Some(ArtControllerState {
@@ -481,10 +481,7 @@ fn get_art_thread_spec_cached() -> Option<&'static ArtThreadSpec> {
 /// DoCall on_enter: 检查 x0 (ArtMethod*) 是否在 replacedMethods 中，有则替换。
 /// 包含递归防护: 如果当前栈帧来自 callOriginal (managedStack 中已有 replacement)，
 /// 则跳过替换，让 original method 正常执行，防止无限递归。
-unsafe extern "C" fn on_do_call_enter(
-    ctx_ptr: *mut hook_ffi::HookContext,
-    _user_data: *mut std::ffi::c_void,
-) {
+unsafe extern "C" fn on_do_call_enter(ctx_ptr: *mut hook_ffi::HookContext, _user_data: *mut std::ffi::c_void) {
     if ctx_ptr.is_null() {
         return;
     }
@@ -546,8 +543,7 @@ unsafe fn should_replace_for_stack(replacement: u64) -> bool {
     let managed_stack = thread as usize + thread_spec.managed_stack_offset;
 
     // 读取 top_quick_frame
-    let top_qf =
-        std::ptr::read_volatile((managed_stack + ms_spec.top_quick_frame_offset) as *const u64);
+    let top_qf = std::ptr::read_volatile((managed_stack + ms_spec.top_quick_frame_offset) as *const u64);
 
     if top_qf != 0 {
         // top_quick_frame != NULL → 正常调用 (有 compiled frame)，执行替换
@@ -563,8 +559,7 @@ unsafe fn should_replace_for_stack(replacement: u64) -> bool {
     }
 
     // 读取 link.top_quick_frame (可能有 TaggedQuickFrame 的 tag bit)
-    let link_tqf =
-        std::ptr::read_volatile((link as usize + ms_spec.top_quick_frame_offset) as *const u64);
+    let link_tqf = std::ptr::read_volatile((link as usize + ms_spec.top_quick_frame_offset) as *const u64);
     // Strip tag bit (bit 0): ART uses it as a tag for managed/JNI frames
     let frame_ptr = (link_tqf & !1u64) & PAC_STRIP_MASK;
     if frame_ptr == 0 {
@@ -589,10 +584,7 @@ static LAST_SEEN_ART_METHOD: AtomicU64 = AtomicU64::new(0);
 /// PrettyMethod on_enter 回调: 当 method (x0/this) 为 NULL 时替换为上次见到的非空 method。
 /// 对标 Frida fixupArtQuickDeliverExceptionBug: QuickDeliverException 中
 /// native 线程无 Java frame 时 method==NULL → PrettyMethod(NULL) → SIGSEGV。
-unsafe extern "C" fn on_pretty_method_enter(
-    ctx_ptr: *mut hook_ffi::HookContext,
-    _user_data: *mut std::ffi::c_void,
-) {
+unsafe extern "C" fn on_pretty_method_enter(ctx_ptr: *mut hook_ffi::HookContext, _user_data: *mut std::ffi::c_void) {
     if ctx_ptr.is_null() {
         return;
     }
@@ -610,18 +602,12 @@ unsafe extern "C" fn on_pretty_method_enter(
 }
 
 /// GC / FixupStaticTrampolines on_leave 回调: 调用同步函数
-unsafe extern "C" fn on_gc_sync_leave(
-    _ctx_ptr: *mut hook_ffi::HookContext,
-    _user_data: *mut std::ffi::c_void,
-) {
+unsafe extern "C" fn on_gc_sync_leave(_ctx_ptr: *mut hook_ffi::HookContext, _user_data: *mut std::ffi::c_void) {
     synchronize_replacement_methods();
 }
 
 /// RunFlipFunction on_enter 回调: 线程翻转期间同步
-unsafe extern "C" fn on_gc_sync_enter(
-    _ctx_ptr: *mut hook_ffi::HookContext,
-    _user_data: *mut std::ffi::c_void,
-) {
+unsafe extern "C" fn on_gc_sync_enter(_ctx_ptr: *mut hook_ffi::HookContext, _user_data: *mut std::ffi::c_void) {
     synchronize_replacement_methods();
 }
 
@@ -667,9 +653,7 @@ unsafe extern "C" fn on_get_oat_quick_method_header(
 unsafe fn synchronize_replacement_methods() {
     use super::art_method::ART_BRIDGE_FUNCTIONS;
     use super::callback::{HookType, JAVA_HOOK_REGISTRY};
-    use super::jni_core::{
-        k_acc_compile_dont_bother, ART_METHOD_SPEC, K_ACC_FAST_INTERP_TO_INTERP,
-    };
+    use super::jni_core::{k_acc_compile_dont_bother, ART_METHOD_SPEC, K_ACC_FAST_INTERP_TO_INTERP};
 
     let guard = match JAVA_HOOK_REGISTRY.lock() {
         Ok(g) => g,
@@ -698,9 +682,7 @@ unsafe fn synchronize_replacement_methods() {
         // --- Fix 1: declaring_class_ 同步 ---
         // 移动 GC 会更新原始 ArtMethod 的 declaring_class_ (offset 0, 4 bytes GcRoot)，
         // 但堆分配的 replacement 和 clone 不会被 GC 追踪。同步以防悬空引用。
-        let HookType::Replaced {
-            replacement_addr, ..
-        } = &data.hook_type;
+        let HookType::Replaced { replacement_addr, .. } = &data.hook_type;
         {
             let declaring_class = std::ptr::read_volatile(art_method as *const u32);
             std::ptr::write_volatile(*replacement_addr as *mut u32, declaring_class);
@@ -713,8 +695,7 @@ unsafe fn synchronize_replacement_methods() {
         // --- flags 修复: 确保 kAccCompileDontBother 在 + kAccFastInterpreterToInterpreterInvoke 不在 ---
         let cdontbother = k_acc_compile_dont_bother();
         let flags = std::ptr::read_volatile((art_method + spec.access_flags_offset) as *const u32);
-        let need_fix = (cdontbother != 0 && (flags & cdontbother) == 0)
-            || (flags & K_ACC_FAST_INTERP_TO_INTERP) != 0;
+        let need_fix = (cdontbother != 0 && (flags & cdontbother) == 0) || (flags & K_ACC_FAST_INTERP_TO_INTERP) != 0;
         if need_fix {
             let fixed = (flags | cdontbother) & !K_ACC_FAST_INTERP_TO_INTERP;
             std::ptr::write_volatile((art_method + spec.access_flags_offset) as *mut u32, fixed);
@@ -730,14 +711,8 @@ unsafe fn synchronize_replacement_methods() {
                 if nterp != 0 && interp_bridge != 0 {
                     let current_ep = read_entry_point(data.art_method, ep_offset);
                     if current_ep == nterp {
-                        std::ptr::write_volatile(
-                            (art_method + ep_offset) as *mut u64,
-                            interp_bridge,
-                        );
-                        hook_ffi::hook_flush_cache(
-                            (art_method + ep_offset) as *mut std::ffi::c_void,
-                            8,
-                        );
+                        std::ptr::write_volatile((art_method + ep_offset) as *mut u64, interp_bridge);
+                        hook_ffi::hook_flush_cache((art_method + ep_offset) as *mut std::ffi::c_void, 8);
                     }
                 }
             }
@@ -749,14 +724,8 @@ unsafe fn synchronize_replacement_methods() {
                 let current_ep = read_entry_point(data.art_method, ep_offset);
                 if current_ep != data.original_entry_point {
                     // GC/类初始化 重置了 entry_point (可能变为 nterp)，恢复到被 patch 的原始地址
-                    std::ptr::write_volatile(
-                        (art_method + ep_offset) as *mut u64,
-                        data.original_entry_point,
-                    );
-                    hook_ffi::hook_flush_cache(
-                        (art_method + ep_offset) as *mut std::ffi::c_void,
-                        8,
-                    );
+                    std::ptr::write_volatile((art_method + ep_offset) as *mut u64, data.original_entry_point);
+                    hook_ffi::hook_flush_cache((art_method + ep_offset) as *mut std::ffi::c_void, 8);
                 }
             }
         }

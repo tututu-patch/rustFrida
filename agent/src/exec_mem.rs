@@ -1,10 +1,7 @@
 //! ExecMem - 可读写可执行内存分配器
 
 use crate::vma_name::set_anon_vma_name_raw;
-use libc::{
-    mmap, munmap, sysconf, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
-    _SC_PAGESIZE,
-};
+use libc::{mmap, munmap, sysconf, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, _SC_PAGESIZE};
 use std::io::Error;
 use std::ptr;
 use std::ptr::null_mut;

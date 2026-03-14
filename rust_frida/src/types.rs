@@ -1,8 +1,8 @@
 #![cfg(all(target_os = "android", target_arch = "aarch64"))]
 
 use libc::{
-    c_void, close, dlerror, dlopen, dlsym, free, malloc, memfd_create, mmap, munmap,
-    pthread_create, pthread_detach, read, socketpair, strlen, write,
+    c_void, close, dlerror, dlopen, dlsym, free, malloc, memfd_create, mmap, munmap, pthread_create, pthread_detach,
+    read, socketpair, strlen, write,
 };
 use paste::paste;
 use std::os::raw::c_int;
@@ -11,11 +11,7 @@ use crate::log_step;
 use crate::process::{call_target_function, write_bytes, write_memory};
 
 extern "C" {
-    fn android_dlopen_ext(
-        filename: *const std::os::raw::c_char,
-        flag: c_int,
-        extinfo: *const c_void,
-    ) -> *mut c_void;
+    fn android_dlopen_ext(filename: *const std::os::raw::c_char, flag: c_int, extinfo: *const c_void) -> *mut c_void;
 }
 
 /// 定义需要获取偏移的函数列表

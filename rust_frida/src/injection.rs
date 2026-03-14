@@ -7,21 +7,17 @@ use nix::unistd::Pid;
 use std::mem::size_of;
 use std::os::unix::io::RawFd;
 
-use crate::process::{
-    attach_to_process, call_target_function, get_lib_base, read_memory, write_bytes, write_memory,
-};
+use crate::process::{attach_to_process, call_target_function, get_lib_base, read_memory, write_bytes, write_memory};
 use crate::types::{write_string_table, AgentArgs, DlOffsets, LibcOffsets};
 use crate::{log_error, log_info, log_success, log_verbose, log_verbose_addr, log_warn};
 
 pub(crate) const SHELLCODE: &[u8] = include_bytes!("../../loader/build/loader.bin");
 
 #[cfg(debug_assertions)]
-pub(crate) const AGENT_SO: &[u8] =
-    include_bytes!("../../target/aarch64-linux-android/debug/libagent.so");
+pub(crate) const AGENT_SO: &[u8] = include_bytes!("../../target/aarch64-linux-android/debug/libagent.so");
 
 #[cfg(not(debug_assertions))]
-pub(crate) const AGENT_SO: &[u8] =
-    include_bytes!("../../target/aarch64-linux-android/release/libagent.so");
+pub(crate) const AGENT_SO: &[u8] = include_bytes!("../../target/aarch64-linux-android/release/libagent.so");
 
 #[cfg(feature = "qbdi")]
 pub(crate) const QBDI_HELPER_SO: &[u8] = include_bytes!(env!("QBDI_HELPER_SO_PATH"));
@@ -30,15 +26,10 @@ pub(crate) const QBDI_HELPER_SO: &[u8] = include_bytes!(env!("QBDI_HELPER_SO_PAT
 const EMPTY_SO: &[u8] = include_bytes!("../../loader/build/loader.bin");
 
 /// 在目标进程中分配内存并写入结构体，返回远程地址。
-fn alloc_and_write_struct<T>(
-    pid: i32,
-    malloc_addr: usize,
-    data: &T,
-    name: &str,
-) -> Result<usize, String> {
+fn alloc_and_write_struct<T>(pid: i32, malloc_addr: usize, data: &T, name: &str) -> Result<usize, String> {
     let size = size_of::<T>();
-    let addr = call_target_function(pid, malloc_addr, &[size], None)
-        .map_err(|e| format!("分配{}内存失败: {}", name, e))?;
+    let addr =
+        call_target_function(pid, malloc_addr, &[size], None).map_err(|e| format!("分配{}内存失败: {}", name, e))?;
     log_verbose!("分配{}内存", name);
     log_verbose_addr!("地址", addr);
     write_memory(pid, addr, data)?;
@@ -80,11 +71,7 @@ fn extract_fd_from_target(pid: i32, target_fd: i32) -> Result<RawFd, String> {
     // pidfd_open(pid, flags=0)
     let pidfd = unsafe { libc::syscall(SYS_PIDFD_OPEN, pid, 0) };
     if pidfd < 0 {
-        return Err(format!(
-            "pidfd_open({}) 失败: {}",
-            pid,
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("pidfd_open({}) 失败: {}", pid, std::io::Error::last_os_error()));
     }
 
     // pidfd_getfd(pidfd, target_fd, flags=0)
@@ -100,12 +87,7 @@ fn extract_fd_from_target(pid: i32, target_fd: i32) -> Result<RawFd, String> {
         ));
     }
 
-    log_verbose!(
-        "pidfd_getfd: pid={} target_fd={} → host_fd={}",
-        pid,
-        target_fd,
-        host_fd
-    );
+    log_verbose!("pidfd_getfd: pid={} target_fd={} → host_fd={}", pid, target_fd, host_fd);
     Ok(host_fd as RawFd)
 }
 
@@ -167,7 +149,11 @@ impl Drop for InjectionGuard {
 fn spawn_agent_blob_sender(host_fd: RawFd) -> Result<std::thread::JoinHandle<Result<(), String>>, String> {
     let fd = unsafe { libc::dup(host_fd) };
     if fd < 0 {
-        return Err(format!("dup(host_fd={}) 失败: {}", host_fd, std::io::Error::last_os_error()));
+        return Err(format!(
+            "dup(host_fd={}) 失败: {}",
+            host_fd,
+            std::io::Error::last_os_error()
+        ));
     }
 
     let payload = AGENT_SO.to_vec();
@@ -465,19 +451,10 @@ struct AndroidDlextinfo {
 }
 
 /// 在目标进程中创建 memfd 并从 host 写入 SO 数据
-fn create_and_fill_memfd(
-    pid: i32,
-    offsets: &LibcOffsets,
-    so_data: &[u8],
-    label: &str,
-) -> Result<i32, String> {
+fn create_and_fill_memfd(pid: i32, offsets: &LibcOffsets, so_data: &[u8], label: &str) -> Result<i32, String> {
     let target_memfd = create_memfd_in_target(pid, offsets)?;
     let host_memfd = extract_fd_from_target(pid, target_memfd)?;
-    log_verbose!(
-        "已提取目标 memfd: target_fd={} → host_fd={}",
-        target_memfd,
-        host_memfd
-    );
+    log_verbose!("已提取目标 memfd: target_fd={} → host_fd={}", target_memfd, host_memfd);
 
     // 写入 SO 数据到 host_memfd
     let mut written = 0usize;
@@ -552,8 +529,7 @@ fn dlopen_agent_via_ptrace(
         library_fd: target_memfd,
         ..Default::default()
     };
-    let ext_info_addr =
-        alloc_and_write_struct(pid, offsets.malloc, &ext_info, "android_dlextinfo")?;
+    let ext_info_addr = alloc_and_write_struct(pid, offsets.malloc, &ext_info, "android_dlextinfo")?;
 
     // 调用目标进程里真实解析出来的 android_dlopen_ext(name, RTLD_NOW=2, &ext_info)
     let handle = call_target_function(pid, android_dlopen_ext_addr, &[name_addr, 2, ext_info_addr], None)
@@ -610,11 +586,7 @@ pub(crate) fn inject_debug(
         return inject_to_process(pid, string_overrides).map(Some);
     }
 
-    log_info!(
-        "正在附加到进程 PID: {} (debug 模式: {})",
-        pid,
-        mode.description()
-    );
+    log_info!("正在附加到进程 PID: {} (debug 模式: {})", pid, mode.description());
 
     // 计算 offsets
     let self_base = get_lib_base(None, "libc.so")?;
@@ -643,8 +615,8 @@ pub(crate) fn inject_debug(
 
     // ptrace-only: 只调用 malloc + free，不注入任何东西
     if mode == DebugInjectMode::PtraceOnly {
-        let ptr = call_target_function(pid, offsets.malloc, &[64], None)
-            .map_err(|e| format!("调用 malloc 失败: {}", e))?;
+        let ptr =
+            call_target_function(pid, offsets.malloc, &[64], None).map_err(|e| format!("调用 malloc 失败: {}", e))?;
         log_success!("malloc(64) = 0x{:x}", ptr);
         let _ = call_target_function(pid, offsets.free, &[ptr], None);
         log_success!("free(0x{:x}) 完成", ptr);
@@ -682,11 +654,7 @@ pub(crate) fn inject_debug(
         let extracted = extract_fd_from_target(pid, fd0)?;
         // 关闭目标进程的 fd0
         let _ = call_target_function(pid, offsets.close, &[fd0 as usize], None);
-        log_success!(
-            "socketpair 创建成功: host_fd={}, target_fd1={}",
-            extracted,
-            fd1
-        );
+        log_success!("socketpair 创建成功: host_fd={}, target_fd1={}", extracted, fd1);
         host_fd = Some(extracted);
 
         // fd-only 模式到此为止：也关闭目标进程的 fd1（只测试 fd 是否被探测）
@@ -721,8 +689,7 @@ pub(crate) fn inject_debug(
 
         // 读取 hide_soinfo 结果（仅非空 SO）
         if !mode.use_empty_so() && handle != 0 {
-            let sym_addr =
-                call_target_function(pid, offsets.malloc, &[hide_result_sym.len()], None).ok();
+            let sym_addr = call_target_function(pid, offsets.malloc, &[hide_result_sym.len()], None).ok();
             if let Some(sym_addr) = sym_addr {
                 let _ = write_bytes(pid, sym_addr, hide_result_sym);
                 if let Ok(fn_ptr) = call_target_function(pid, dl.dlsym, &[handle, sym_addr], None) {
@@ -742,11 +709,7 @@ pub(crate) fn inject_debug(
                                             r.entries_scanned,
                                             r.sym_matched
                                         );
-                                        log_info!(
-                                            "  head=\"{}\", target=0x{:x}",
-                                            hp_str,
-                                            r.target_ptr
-                                        );
+                                        log_info!("  head=\"{}\", target=0x{:x}", hp_str, r.target_ptr);
                                     } else {
                                         log_error!("hide_soinfo: 失败 (status={})", r.status);
                                         let err_str = HideResult::cstr(&r.error);
@@ -759,18 +722,14 @@ pub(crate) fn inject_debug(
                                             r.entries_scanned,
                                             r.sym_matched
                                         );
-                                        log_info!(
-                                            "  head=0x{:x}, head_path=\"{}\"",
-                                            r.head_ptr,
-                                            hp_str
-                                        );
+                                        log_info!("  head=0x{:x}, head_path=\"{}\"", r.head_ptr, hp_str);
                                     }
                                 }
                             }
                         }
                     } else {
-                        let sym_name = std::str::from_utf8(&hide_result_sym[..hide_result_sym.len() - 1])
-                            .unwrap_or("<invalid>");
+                        let sym_name =
+                            std::str::from_utf8(&hide_result_sym[..hide_result_sym.len() - 1]).unwrap_or("<invalid>");
                         log_warn!("dlsym({}) 返回 NULL", sym_name);
                     }
                 } else {

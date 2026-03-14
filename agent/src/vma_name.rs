@@ -13,11 +13,7 @@ fn is_valid_anon_name(name: &str) -> bool {
 /// Best-effort anonymous VMA naming for `/proc/<pid>/maps`.
 /// Some Android kernels keep a userspace pointer to the name instead of copying
 /// it into kernel memory, so callers should pass a pointer with process-lifetime.
-pub(crate) fn set_anon_vma_name_raw(
-    addr: *mut u8,
-    size: usize,
-    name: &'static [u8],
-) -> Result<(), i32> {
+pub(crate) fn set_anon_vma_name_raw(addr: *mut u8, size: usize, name: &'static [u8]) -> Result<(), i32> {
     if addr.is_null() || size == 0 || name.is_empty() || *name.last().unwrap() != 0 {
         return Err(libc::EINVAL);
     }
@@ -43,8 +39,6 @@ pub(crate) fn set_anon_vma_name_raw(
     if ret == 0 {
         Ok(())
     } else {
-        Err(std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or(libc::EINVAL))
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EINVAL))
     }
 }

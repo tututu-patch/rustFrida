@@ -1,20 +1,20 @@
 use crate::ffi;
 use crate::ffi::hook as hook_ffi;
 use crate::jsapi::callback_util::{
-    dup_callback_to_bytes, ensure_function_arg, extract_string_arg, throw_internal_error,
-    with_registry, with_registry_mut,
+    dup_callback_to_bytes, ensure_function_arg, extract_string_arg, throw_internal_error, with_registry,
+    with_registry_mut,
 };
 use crate::jsapi::console::output_message;
 use crate::value::JSValue;
 
-use super::install_support::{
-    alloc_art_method_clone, create_class_global_ref, create_replacement_art_method,
-    install_per_method_router_hook, update_original_method_flags_for_hook, JavaHookInstallGuard,
-};
 use super::super::art_controller::ensure_art_controller_initialized;
 use super::super::art_method::*;
 use super::super::callback::*;
 use super::super::jni_core::*;
+use super::install_support::{
+    alloc_art_method_clone, create_class_global_ref, create_replacement_art_method, install_per_method_router_hook,
+    update_original_method_flags_for_hook, JavaHookInstallGuard,
+};
 
 pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
     ctx: *mut ffi::JSContext,
@@ -25,8 +25,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
     if argc < 4 {
         return ffi::JS_ThrowTypeError(
             ctx,
-            b"Java.hook() requires 4 arguments: class, method, signature, callback\0".as_ptr()
-                as *const _,
+            b"Java.hook() requires 4 arguments: class, method, signature, callback\0".as_ptr() as *const _,
         );
     }
 
@@ -53,20 +52,12 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
         Err(err) => return err,
     };
 
-    let sig_str = match extract_string_arg(
-        ctx,
-        sig_arg,
-        b"Java.hook() third argument must be a signature string\0",
-    ) {
+    let sig_str = match extract_string_arg(ctx, sig_arg, b"Java.hook() third argument must be a signature string\0") {
         Ok(value) => value,
         Err(err) => return err,
     };
 
-    if let Err(err) = ensure_function_arg(
-        ctx,
-        callback_arg,
-        b"Java.hook() fourth argument must be a function\0",
-    ) {
+    if let Err(err) = ensure_function_arg(ctx, callback_arg, b"Java.hook() fourth argument must be a function\0") {
         return err;
     }
 
@@ -81,11 +72,10 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
         Err(msg) => return throw_internal_error(ctx, msg),
     };
 
-    let (art_method, is_static) =
-        match resolve_art_method(env, &class_name, &method_name, &actual_sig, force_static) {
-            Ok(r) => r,
-            Err(msg) => return throw_internal_error(ctx, msg),
-        };
+    let (art_method, is_static) = match resolve_art_method(env, &class_name, &method_name, &actual_sig, force_static) {
+        Ok(r) => r,
+        Err(msg) => return throw_internal_error(ctx, msg),
+    };
 
     init_java_registry();
     if with_registry(&JAVA_HOOK_REGISTRY, |r| r.contains_key(&art_method)).unwrap_or(false) {
@@ -104,8 +94,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
         .flatten();
 
         if let Some(old_bytes) = old_callback_bytes {
-            let old_callback: ffi::JSValue =
-                std::ptr::read(old_bytes.as_ptr() as *const ffi::JSValue);
+            let old_callback: ffi::JSValue = std::ptr::read(old_bytes.as_ptr() as *const ffi::JSValue);
             ffi::qjs_free_value(ctx, old_callback);
         }
 
@@ -121,8 +110,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_hook(
     let ep_offset = spec.entry_point_offset;
     let data_off = spec.data_offset;
 
-    let original_access_flags =
-        std::ptr::read_volatile((art_method as usize + spec.access_flags_offset) as *const u32);
+    let original_access_flags = std::ptr::read_volatile((art_method as usize + spec.access_flags_offset) as *const u32);
     let original_data = std::ptr::read_volatile((art_method as usize + data_off) as *const u64);
     let original_entry_point = read_entry_point(art_method, ep_offset);
 

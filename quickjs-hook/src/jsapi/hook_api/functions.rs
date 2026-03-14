@@ -3,8 +3,8 @@
 use crate::ffi;
 use crate::ffi::hook as hook_ffi;
 use crate::jsapi::callback_util::{
-    dup_callback_to_bytes, ensure_function_arg, extract_pointer_address,
-    js_i64_to_js_number_or_bigint, js_value_to_u64_or_zero, throw_internal_error,
+    dup_callback_to_bytes, ensure_function_arg, extract_pointer_address, js_i64_to_js_number_or_bigint,
+    js_value_to_u64_or_zero, throw_internal_error,
 };
 use crate::jsapi::util::is_addr_accessible;
 use crate::value::JSValue;
@@ -22,10 +22,7 @@ pub(crate) unsafe extern "C" fn js_hook(
     argv: *mut ffi::JSValue,
 ) -> ffi::JSValue {
     if argc < 2 {
-        return ffi::JS_ThrowTypeError(
-            ctx,
-            b"hook() requires at least 2 arguments\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowTypeError(ctx, b"hook() requires at least 2 arguments\0".as_ptr() as *const _);
     }
 
     let ptr_arg = JSValue(*argv);
@@ -46,11 +43,7 @@ pub(crate) unsafe extern "C" fn js_hook(
     };
 
     // Check callback is a function
-    if let Err(err) = ensure_function_arg(
-        ctx,
-        callback_arg,
-        b"hook() second argument must be a function\0",
-    ) {
+    if let Err(err) = ensure_function_arg(ctx, callback_arg, b"hook() second argument must be a function\0") {
         return err;
     }
 
@@ -123,8 +116,7 @@ pub(crate) unsafe extern "C" fn js_unhook(
     if let Some(data) = with_registry_mut(&HOOK_REGISTRY, |registry| registry.remove(&addr)) {
         if let Some(data) = data {
             let ctx = data.ctx as *mut ffi::JSContext;
-            let callback: ffi::JSValue =
-                std::ptr::read(data.callback_bytes.as_ptr() as *const ffi::JSValue);
+            let callback: ffi::JSValue = std::ptr::read(data.callback_bytes.as_ptr() as *const ffi::JSValue);
             ffi::qjs_free_value(ctx, callback);
         }
     }
@@ -142,10 +134,7 @@ pub(crate) unsafe extern "C" fn js_call_native(
     argv: *mut ffi::JSValue,
 ) -> ffi::JSValue {
     if argc < 1 {
-        return ffi::JS_ThrowTypeError(
-            ctx,
-            b"callNative() requires at least 1 argument\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowTypeError(ctx, b"callNative() requires at least 1 argument\0".as_ptr() as *const _);
     }
 
     let ptr_arg = JSValue(*argv);
@@ -158,18 +147,12 @@ pub(crate) unsafe extern "C" fn js_call_native(
     // Reject null and near-zero addresses without calling mincore:
     // the first 64KB is never a valid user-space function pointer on ARM64 Android.
     if addr < 0x10000 {
-        return ffi::JS_ThrowRangeError(
-            ctx,
-            b"callNative() address is not mapped\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowRangeError(ctx, b"callNative() address is not mapped\0".as_ptr() as *const _);
     }
 
     // For higher addresses, verify accessibility via mincore before calling.
     if !is_addr_accessible(addr, 4) {
-        return ffi::JS_ThrowRangeError(
-            ctx,
-            b"callNative() address is not mapped\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowRangeError(ctx, b"callNative() address is not mapped\0".as_ptr() as *const _);
     }
 
     // Verify the address is in a known executable segment via dladdr.
@@ -195,8 +178,7 @@ pub(crate) unsafe extern "C" fn js_call_native(
         }
     }
 
-    let func: unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> i64 =
-        std::mem::transmute(addr as usize);
+    let func: unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> i64 = std::mem::transmute(addr as usize);
     let result = func(args[0], args[1], args[2], args[3], args[4], args[5]);
 
     // Return Number when the result magnitude fits exactly as f64 (≤ 2^53).

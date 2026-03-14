@@ -17,8 +17,8 @@ use clap::Parser;
 #[cfg(feature = "qbdi")]
 use communication::send_qbdi_helper;
 use communication::{
-    eval_state, send_command, start_socketpair_handler, AGENT_DISCONNECTED, AGENT_STAT, GLOBAL_SENDER,
-    HostToAgentMessage,
+    eval_state, send_command, start_socketpair_handler, HostToAgentMessage, AGENT_DISCONNECTED, AGENT_STAT,
+    GLOBAL_SENDER,
 };
 use injection::{inject_debug, inject_to_process, watch_and_inject};
 use process::find_pid_by_name;
@@ -62,11 +62,7 @@ fn main() {
             if available_names.contains(&name) {
                 string_overrides.insert(name.to_string(), value.to_string());
             } else {
-                log_warn!(
-                    "未知的字符串名称 '{}', 可用名称: {}",
-                    name,
-                    available_names.join(", ")
-                );
+                log_warn!("未知的字符串名称 '{}', 可用名称: {}", name, available_names.join(", "));
             }
         } else {
             log_warn!("无效的字符串格式 '{}', 应为 name=value", s);
@@ -331,10 +327,8 @@ fn main() {
                 }
                 // Fix #1: loadjs/jseval/jsinit 都等待 EVAL:/EVAL_ERR: 响应并显示结果
                 // jsinit 也走 eval 等待，避免其 EVAL:initialized 响应污染后续 jseval 通道
-                let is_eval_cmd = line.starts_with("jseval ")
-                    || line.starts_with("loadjs ")
-                    || line == "jsinit"
-                    || line == "jsclean";
+                let is_eval_cmd =
+                    line.starts_with("jseval ") || line.starts_with("loadjs ") || line == "jsinit" || line == "jsclean";
                 if is_eval_cmd {
                     eval_state().clear();
                 }
@@ -422,9 +416,6 @@ fn monitor_process_alive(pid: i32, duration_secs: u64) {
         );
     } else {
         log_success!("进程在 {} 秒监控期内持续存活", elapsed);
-        println!(
-            "  {}结论:{} 当前模式下进程 {}未被检测{}",
-            BOLD, RESET, GREEN, RESET
-        );
+        println!("  {}结论:{} 当前模式下进程 {}未被检测{}", BOLD, RESET, GREEN, RESET);
     }
 }

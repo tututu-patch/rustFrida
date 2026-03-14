@@ -39,11 +39,7 @@ pub(crate) fn read_frame(stream: &mut UnixStream) -> std::io::Result<(u8, Vec<u8
 /// Write `data` to the global socket stream, serialized via Mutex.
 pub(crate) fn write_stream(data: &[u8]) {
     if let Some(m) = GLOBAL_STREAM.get() {
-        let _ = write_frame(
-            &mut m.lock().unwrap_or_else(|e| e.into_inner()),
-            FRAME_KIND_LOG,
-            data,
-        );
+        let _ = write_frame(&mut m.lock().unwrap_or_else(|e| e.into_inner()), FRAME_KIND_LOG, data);
     }
 }
 
@@ -53,22 +49,11 @@ pub(crate) fn write_stream_raw(data: &[u8]) {
         let mut header = [0u8; 5];
         header[0] = FRAME_KIND_LOG;
         header[1..].copy_from_slice(&(data.len() as u32).to_le_bytes());
-        let _ = unsafe {
-            libc::write(
-                *fd,
-                header.as_ptr() as *const libc::c_void,
-                header.len(),
-            )
-        };
+        let _ = unsafe { libc::write(*fd, header.as_ptr() as *const libc::c_void, header.len()) };
         let mut offset = 0usize;
         while offset < data.len() {
-            let wrote = unsafe {
-                libc::write(
-                    *fd,
-                    data[offset..].as_ptr() as *const libc::c_void,
-                    data.len() - offset,
-                )
-            };
+            let wrote =
+                unsafe { libc::write(*fd, data[offset..].as_ptr() as *const libc::c_void, data.len() - offset) };
             if wrote <= 0 {
                 break;
             }
@@ -79,11 +64,7 @@ pub(crate) fn write_stream_raw(data: &[u8]) {
 
 pub(crate) fn send_hello() {
     if let Some(m) = GLOBAL_STREAM.get() {
-        let _ = write_frame(
-            &mut m.lock().unwrap_or_else(|e| e.into_inner()),
-            FRAME_KIND_HELLO,
-            &[],
-        );
+        let _ = write_frame(&mut m.lock().unwrap_or_else(|e| e.into_inner()), FRAME_KIND_HELLO, &[]);
     }
 }
 

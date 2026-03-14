@@ -21,9 +21,7 @@
 /// Transmute a JNI function pointer from the function table by index.
 macro_rules! jni_fn {
     ($env:expr, $ty:ty, $idx:expr) => {
-        std::mem::transmute::<*const std::ffi::c_void, $ty>(
-            $crate::jsapi::java::jni_core::jni_fn_ptr($env, $idx),
-        )
+        std::mem::transmute::<*const std::ffi::c_void, $ty>($crate::jsapi::java::jni_core::jni_fn_ptr($env, $idx))
     };
 }
 
@@ -84,10 +82,8 @@ pub(crate) unsafe fn try_read_jstring(env_ptr: u64, obj_ptr: u64) -> Option<Stri
     let new_local_ref: NewLocalRefFn = jni_fn!(env, NewLocalRefFn, JNI_NEW_LOCAL_REF);
     let delete_local_ref: DeleteLocalRefFn = jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
     let is_instance_of: IsInstanceOfFn = jni_fn!(env, IsInstanceOfFn, JNI_IS_INSTANCE_OF);
-    let get_str: GetStringUtfCharsFn =
-        jni_fn!(env, GetStringUtfCharsFn, JNI_GET_STRING_UTF_CHARS);
-    let rel_str: ReleaseStringUtfCharsFn =
-        jni_fn!(env, ReleaseStringUtfCharsFn, JNI_RELEASE_STRING_UTF_CHARS);
+    let get_str: GetStringUtfCharsFn = jni_fn!(env, GetStringUtfCharsFn, JNI_GET_STRING_UTF_CHARS);
+    let rel_str: ReleaseStringUtfCharsFn = jni_fn!(env, ReleaseStringUtfCharsFn, JNI_RELEASE_STRING_UTF_CHARS);
 
     let local_obj = new_local_ref(env, obj);
     if local_obj.is_null() || jni_check_exc(env) {
@@ -240,12 +236,10 @@ unsafe extern "C" fn js_art_router_debug(
         if let Some(ref registry) = *guard {
             for (art_method, data) in registry.iter() {
                 if let Some(spec) = ART_METHOD_SPEC.get() {
-                    let current_ep = std::ptr::read_volatile(
-                        (*art_method as usize + spec.entry_point_offset) as *const u64,
-                    );
-                    let current_flags = std::ptr::read_volatile(
-                        (*art_method as usize + spec.access_flags_offset) as *const u32,
-                    );
+                    let current_ep =
+                        std::ptr::read_volatile((*art_method as usize + spec.entry_point_offset) as *const u64);
+                    let current_flags =
+                        std::ptr::read_volatile((*art_method as usize + spec.access_flags_offset) as *const u32);
                     output_message(&format!(
                         "[art_router_debug] ArtMethod={:#x}: current_ep={:#x} (original={:#x}), flags={:#x} (original={:#x})",
                         art_method, current_ep, data.original_entry_point,
@@ -305,8 +299,7 @@ unsafe extern "C" fn js_update_classloader(
     if argc < 1 {
         return ffi::JS_ThrowTypeError(
             ctx,
-            b"Java._updateClassLoader() requires 1 argument: ClassLoader jobject ptr\0".as_ptr()
-                as *const _,
+            b"Java._updateClassLoader() requires 1 argument: ClassLoader jobject ptr\0".as_ptr() as *const _,
         );
     }
     let arg = JSValue(*argv);
@@ -315,8 +308,7 @@ unsafe extern "C" fn js_update_classloader(
         None => {
             return ffi::JS_ThrowTypeError(
                 ctx,
-                b"Java._updateClassLoader() argument must be a pointer (BigInt)\0".as_ptr()
-                    as *const _,
+                b"Java._updateClassLoader() argument must be a pointer (BigInt)\0".as_ptr() as *const _,
             )
         }
     };
@@ -385,11 +377,7 @@ unsafe extern "C" fn js_java_classloaders(
         let obj = ffi::JS_NewObject(ctx);
         set_js_u64_property(ctx, obj, "ptr", loader.ptr);
         JSValue(obj).set_property(ctx, "source", JSValue::string(ctx, &loader.source));
-        JSValue(obj).set_property(
-            ctx,
-            "loaderClassName",
-            JSValue::string(ctx, &loader.loader_class_name),
-        );
+        JSValue(obj).set_property(ctx, "loaderClassName", JSValue::string(ctx, &loader.loader_class_name));
         JSValue(obj).set_property(ctx, "description", JSValue::string(ctx, &loader.description));
         ffi::JS_SetPropertyUint32(ctx, arr, index as u32, obj);
     }
@@ -420,12 +408,7 @@ unsafe extern "C" fn js_java_find_class_with_loader(
 
     let class_name = match JSValue(*argv.add(1)).to_string(ctx) {
         Some(v) => v,
-        None => {
-            return throw_type_error(
-                ctx,
-                b"Java._findClassWithLoader() className must be a string\0",
-            )
-        }
+        None => return throw_type_error(ctx, b"Java._findClassWithLoader() className must be a string\0"),
     };
 
     let env = match ensure_jni_initialized() {
@@ -453,10 +436,7 @@ unsafe extern "C" fn js_java_set_classloader(
     argv: *mut ffi::JSValue,
 ) -> ffi::JSValue {
     if argc < 1 {
-        return throw_type_error(
-            ctx,
-            b"Java._setClassLoader() requires 1 argument: loader\0",
-        );
+        return throw_type_error(ctx, b"Java._setClassLoader() requires 1 argument: loader\0");
     }
 
     let loader_ptr = js_loader_arg_to_ptr(ctx, JSValue(*argv));
@@ -472,11 +452,7 @@ unsafe extern "C" fn js_java_set_classloader(
         Err(msg) => return throw_internal_error(ctx, msg),
     };
 
-    JSValue::bool(set_classloader_override(
-        env,
-        loader_ptr as *mut std::ffi::c_void,
-    ))
-    .raw()
+    JSValue::bool(set_classloader_override(env, loader_ptr as *mut std::ffi::c_void)).raw()
 }
 
 /// Register Java API: hook/unhook (C-level) + _methods, then eval boot script
@@ -515,23 +491,11 @@ pub fn register_java_api(ctx: &JSContext) {
             4,
         );
         add_cfunction_to_object(ctx_ptr, java_obj, "_newObject", js_java_new_object, 2);
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_getFieldAuto",
-            js_java_get_field_auto,
-            3,
-        );
+        add_cfunction_to_object(ctx_ptr, java_obj, "_getFieldAuto", js_java_get_field_auto, 3);
         add_cfunction_to_object(ctx_ptr, java_obj, "getField", js_java_get_field, 4);
 
         // 检测面测试 API
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_inspectArtMethod",
-            js_java_inspect_art_method,
-            3,
-        );
+        add_cfunction_to_object(ctx_ptr, java_obj, "_inspectArtMethod", js_java_inspect_art_method, 3);
         add_cfunction_to_object(
             ctx_ptr,
             java_obj,
@@ -539,27 +503,9 @@ pub fn register_java_api(ctx: &JSContext) {
             js_java_set_forced_interpret_only,
             1,
         );
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_initArtController",
-            js_java_init_art_controller,
-            0,
-        );
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_updateClassLoader",
-            js_update_classloader,
-            1,
-        );
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_isClassLoaderReady",
-            js_is_classloader_ready,
-            0,
-        );
+        add_cfunction_to_object(ctx_ptr, java_obj, "_initArtController", js_java_init_art_controller, 0);
+        add_cfunction_to_object(ctx_ptr, java_obj, "_updateClassLoader", js_update_classloader, 1);
+        add_cfunction_to_object(ctx_ptr, java_obj, "_isClassLoaderReady", js_is_classloader_ready, 0);
         add_cfunction_to_object(ctx_ptr, java_obj, "_classLoaders", js_java_classloaders, 0);
         add_cfunction_to_object(
             ctx_ptr,
@@ -568,13 +514,7 @@ pub fn register_java_api(ctx: &JSContext) {
             js_java_find_class_with_loader,
             2,
         );
-        add_cfunction_to_object(
-            ctx_ptr,
-            java_obj,
-            "_setClassLoader",
-            js_java_set_classloader,
-            1,
-        );
+        add_cfunction_to_object(ctx_ptr, java_obj, "_setClassLoader", js_java_set_classloader, 1);
 
         // Set Java object on global
         global.set_property(ctx.as_ptr(), "Java", JSValue(java_obj));
@@ -622,8 +562,7 @@ unsafe fn release_java_hook_resources(
 
     if data.class_global_ref != 0 {
         if let Some(env) = env_opt {
-            let delete_global_ref: DeleteGlobalRefFn =
-                jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
+            let delete_global_ref: DeleteGlobalRefFn = jni_fn!(env, DeleteGlobalRefFn, JNI_DELETE_GLOBAL_REF);
             delete_global_ref(env, data.class_global_ref as *mut std::ffi::c_void);
         }
     }
@@ -677,18 +616,12 @@ pub fn cleanup_java_hooks() {
                             (data.art_method as usize + spec.access_flags_offset) as *mut u32,
                             data.original_access_flags,
                         );
-                        std::ptr::write_volatile(
-                            (data.art_method as usize + data_off) as *mut u64,
-                            data.original_data,
-                        );
+                        std::ptr::write_volatile((data.art_method as usize + data_off) as *mut u64, data.original_data);
                         std::ptr::write_volatile(
                             (data.art_method as usize + ep_offset) as *mut u64,
                             data.original_entry_point,
                         );
-                        hook_ffi::hook_flush_cache(
-                            (data.art_method as usize) as *mut std::ffi::c_void,
-                            ep_offset + 8,
-                        );
+                        hook_ffi::hook_flush_cache((data.art_method as usize) as *mut std::ffi::c_void, ep_offset + 8);
                     }
 
                     // 删除 replacedMethods 映射

@@ -27,9 +27,8 @@ mod quickjs_loader;
 mod stalker;
 
 use crate::communication::{
-    flush_cached_logs, is_cmd_frame, is_qbdi_helper_frame, log_msg, read_frame, register_stream_fd,
-    send_complete, send_eval_err, send_eval_ok, send_hello, shutdown_stream, write_stream,
-    GLOBAL_STREAM,
+    flush_cached_logs, is_cmd_frame, is_qbdi_helper_frame, log_msg, read_frame, register_stream_fd, send_complete,
+    send_eval_err, send_eval_ok, send_hello, shutdown_stream, write_stream, GLOBAL_STREAM,
 };
 use crate::crash_handler::{install_crash_handlers, install_panic_hook};
 use libc::{kill, pid_t, SIGSTOP};
@@ -141,9 +140,7 @@ pub extern "C" fn hello_entry(args_ptr: *mut c_void) -> *mut c_void {
     let sock = unsafe { UnixStream::from_raw_fd(ctrl_fd) };
     let write_half = sock.try_clone().expect("stream clone failed");
     register_stream_fd(&write_half);
-    GLOBAL_STREAM
-        .set(std::sync::Mutex::new(write_half))
-        .unwrap();
+    GLOBAL_STREAM.set(std::sync::Mutex::new(write_half)).unwrap();
     send_hello();
     std::thread::sleep(Duration::from_millis(100));
     flush_cached_logs();
@@ -254,10 +251,7 @@ fn process_cmd(command: &str) {
         #[cfg(feature = "quickjs")]
         Some("jseval") => {
             let expr = command.strip_prefix("jseval").unwrap_or("").trim();
-            eval_and_respond(
-                expr,
-                "EVAL_ERR:[quickjs] 用法: jseval <expression>\n".as_bytes(),
-            );
+            eval_and_respond(expr, "EVAL_ERR:[quickjs] 用法: jseval <expression>\n".as_bytes());
         }
         #[cfg(feature = "quickjs")]
         Some("jscomplete") => {
@@ -286,10 +280,7 @@ fn process_cmd(command: &str) {
         }
         _ => {
             let cmd_name = command.split_whitespace().next().unwrap_or("(empty)");
-            log_msg(format!(
-                "无效命令 '{}'，在 REPL 中输入 help 查看可用命令\n",
-                cmd_name
-            ));
+            log_msg(format!("无效命令 '{}'，在 REPL 中输入 help 查看可用命令\n", cmd_name));
         }
     }
 }

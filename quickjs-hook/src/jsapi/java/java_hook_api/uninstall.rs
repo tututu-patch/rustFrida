@@ -25,29 +25,17 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_unhook(
     let method_arg = JSValue(*argv.add(1));
     let sig_arg = JSValue(*argv.add(2));
 
-    let class_name = match extract_string_arg(
-        ctx,
-        class_arg,
-        b"Java.unhook() first argument must be a string\0",
-    ) {
+    let class_name = match extract_string_arg(ctx, class_arg, b"Java.unhook() first argument must be a string\0") {
         Ok(value) => value,
         Err(err) => return err,
     };
 
-    let method_name = match extract_string_arg(
-        ctx,
-        method_arg,
-        b"Java.unhook() second argument must be a string\0",
-    ) {
+    let method_name = match extract_string_arg(ctx, method_arg, b"Java.unhook() second argument must be a string\0") {
         Ok(value) => value,
         Err(err) => return err,
     };
 
-    let sig_str = match extract_string_arg(
-        ctx,
-        sig_arg,
-        b"Java.unhook() third argument must be a string\0",
-    ) {
+    let sig_str = match extract_string_arg(ctx, sig_arg, b"Java.unhook() third argument must be a string\0") {
         Ok(value) => value,
         Err(err) => return err,
     };
@@ -60,10 +48,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_unhook(
 
     let key = method_key(&class_name, &method_name, &actual_sig);
     let art_method_addr = with_registry(&JAVA_HOOK_REGISTRY, |registry| {
-        registry
-            .iter()
-            .find(|(_, v)| v.method_key == key)
-            .map(|(k, _)| *k)
+        registry.iter().find(|(_, v)| v.method_key == key).map(|(k, _)| *k)
     })
     .flatten();
 
@@ -74,10 +59,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_unhook(
         }
     };
 
-    let hook_data = with_registry_mut(&JAVA_HOOK_REGISTRY, |registry| {
-        registry.remove(&art_method_addr)
-    })
-    .flatten();
+    let hook_data = with_registry_mut(&JAVA_HOOK_REGISTRY, |registry| registry.remove(&art_method_addr)).flatten();
 
     let hook_data = match hook_data {
         Some(d) => d,
@@ -101,10 +83,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_unhook(
 
             if let Some(target) = per_method_hook_target {
                 hook_ffi::hook_remove(*target as *mut std::ffi::c_void);
-                output_message(&format!(
-                    "[java unhook] Step 2: Layer 3 hook 已移除: {:#x}",
-                    target
-                ));
+                output_message(&format!("[java unhook] Step 2: Layer 3 hook 已移除: {:#x}", target));
             }
 
             if let Some(spec) = ART_METHOD_SPEC.get() {
@@ -124,10 +103,7 @@ pub(in crate::jsapi::java) unsafe extern "C" fn js_java_unhook(
                     hook_data.original_entry_point,
                 );
 
-                hook_ffi::hook_flush_cache(
-                    (hook_data.art_method as usize) as *mut std::ffi::c_void,
-                    ep_offset + 8,
-                );
+                hook_ffi::hook_flush_cache((hook_data.art_method as usize) as *mut std::ffi::c_void, ep_offset + 8);
                 output_message("[java unhook] Step 3: ArtMethod 字段已恢复");
             }
 

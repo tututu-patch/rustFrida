@@ -56,12 +56,7 @@ const RULES: &[(&str, &str, &str, &[&str])] = &[
         "unix_stream_socket",
         &["connectto", "read", "write", "getattr", "getopt"],
     ),
-    (
-        "domain",
-        "$self",
-        "tcp_socket",
-        &["read", "write", "getattr", "getopt"],
-    ),
+    ("domain", "$self", "tcp_socket", &["read", "write", "getattr", "getopt"]),
     ("zygote", "zygote", "capability", &["sys_ptrace"]),
     ("?app_zygote", "zygote_exec", "file", &["read"]),
     ("system_server", "?apex_art_data_file", "file", &["execute"]),
@@ -139,8 +134,7 @@ impl<'a> R<'a> {
     fn str_of(&mut self, len: u32) -> Result<String, String> {
         let raw = self.bytes(len as usize)?;
         let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
-        String::from_utf8(raw[..end].to_vec())
-            .map_err(|e| format!("UTF-8 错误 @ 0x{:X}: {}", self.pos, e))
+        String::from_utf8(raw[..end].to_vec()).map_err(|e| format!("UTF-8 错误 @ 0x{:X}: {}", self.pos, e))
     }
 
     fn skip(&mut self, n: usize) -> Result<(), String> {
@@ -626,11 +620,7 @@ fn add_rules(info: &mut PolicyInfo, self_type: &str) -> Result<usize, String> {
         // `?` 前缀: 类型可选，不存在时静默跳过
         let (source_optional, source_name) = strip_optional(source);
         let (target_optional, target_raw) = strip_optional(target);
-        let target_name = if target_raw == "$self" {
-            self_type
-        } else {
-            target_raw
-        };
+        let target_name = if target_raw == "$self" { self_type } else { target_raw };
 
         let source_id = match info.types.get(source_name) {
             Some(&id) => id as u16,
@@ -789,8 +779,7 @@ fn is_enforcing() -> bool {
 
 fn setenforce(enforce: bool) -> Result<(), String> {
     let val = if enforce { "1" } else { "0" };
-    std::fs::write("/sys/fs/selinux/enforce", val)
-        .map_err(|e| format!("setenforce {} 失败: {}", val, e))
+    std::fs::write("/sys/fs/selinux/enforce", val).map_err(|e| format!("setenforce {} 失败: {}", val, e))
 }
 
 /// 参考 Frida frida_set_file_contents: 使用 libc::open(O_RDWR) + libc::write 循环
@@ -801,21 +790,11 @@ fn write_policy_file(path: &str, data: &[u8]) -> Result<(), String> {
     let c_path = CString::new(path).map_err(|_| format!("路径包含 null 字节: {}", path))?;
     let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR) };
     if fd < 0 {
-        return Err(format!(
-            "open({}) 失败: {}",
-            path,
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("open({}) 失败: {}", path, std::io::Error::last_os_error()));
     }
     let mut offset = 0usize;
     while offset < data.len() {
-        let ret = unsafe {
-            libc::write(
-                fd,
-                data[offset..].as_ptr() as *const libc::c_void,
-                data.len() - offset,
-            )
-        };
+        let ret = unsafe { libc::write(fd, data[offset..].as_ptr() as *const libc::c_void, data.len() - offset) };
         if ret >= 0 {
             offset += ret as usize;
         } else {
@@ -854,8 +833,7 @@ pub fn patch_selinux_for_spawn() -> Result<(), String> {
     let self_type = get_self_type()?;
     log_verbose!("当前 SELinux domain: {}", self_type);
 
-    let policy_data =
-        std::fs::read("/sys/fs/selinux/policy").map_err(|e| format!("读取策略失败: {}", e))?;
+    let policy_data = std::fs::read("/sys/fs/selinux/policy").map_err(|e| format!("读取策略失败: {}", e))?;
     log_verbose!("策略大小: {} bytes", policy_data.len());
 
     let mut info = parse_policy(&policy_data)?;
@@ -868,11 +846,7 @@ pub fn patch_selinux_for_spawn() -> Result<(), String> {
     }
 
     let new_policy = build_modified_policy(&policy_data, &info);
-    log_verbose!(
-        "修补后大小: {} bytes (原 {})",
-        new_policy.len(),
-        policy_data.len()
-    );
+    log_verbose!("修补后大小: {} bytes (原 {})", new_policy.len(), policy_data.len());
 
     match write_policy_file("/sys/fs/selinux/load", &new_policy) {
         Ok(()) => {

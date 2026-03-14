@@ -32,19 +32,11 @@ pub(crate) fn commands() -> &'static [(&'static str, &'static str, &'static str)
         #[cfg(feature = "frida-gum")]
         {
             v.push(("stalker", "[tid]", "Frida Stalker 追踪 [frida-gum ✓]"));
-            v.push((
-                "hfl",
-                "<module> <offset>",
-                "Interceptor hook 指定偏移 [frida-gum ✓]",
-            ));
+            v.push(("hfl", "<module> <offset>", "Interceptor hook 指定偏移 [frida-gum ✓]"));
         }
         #[cfg(not(feature = "frida-gum"))]
         {
-            v.push((
-                "stalker",
-                "[tid]",
-                "Frida Stalker 追踪 [--features frida-gum 启用]",
-            ));
+            v.push(("stalker", "[tid]", "Frida Stalker 追踪 [--features frida-gum 启用]"));
             v.push((
                 "hfl",
                 "<module> <offset>",
@@ -67,12 +59,7 @@ impl CommandCompleter {
 impl Completer for CommandCompleter {
     type Candidate = Pair;
 
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _ctx: &Context<'_>,
-    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+    fn complete(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> rustyline::Result<(usize, Vec<Pair>)> {
         // 只在光标处于第一个 token 范围内时补全
         let before_cursor = &line[..pos];
         if before_cursor.contains(' ') {
@@ -130,12 +117,7 @@ impl JsReplCompleter {
 impl Completer for JsReplCompleter {
     type Candidate = Pair;
 
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _ctx: &Context<'_>,
-    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+    fn complete(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> rustyline::Result<(usize, Vec<Pair>)> {
         let before_cursor = &line[..pos];
 
         // Determine the replacement start position.  After the last '.' we only
@@ -179,9 +161,7 @@ impl Hinter for JsReplCompleter {
         }
 
         // Check if current input matches the cached prefix context
-        if !cached_prefix.starts_with(before_cursor)
-            && !before_cursor.starts_with(cached_prefix.as_str())
-        {
+        if !cached_prefix.starts_with(before_cursor) && !before_cursor.starts_with(cached_prefix.as_str()) {
             return None;
         }
 
@@ -203,11 +183,7 @@ impl Hinter for JsReplCompleter {
         }
 
         // Build hint: show as " [debug|error|info|log|warn]"
-        let hint_list = matching
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("|");
+        let hint_list = matching.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("|");
         Some(format!(" [{}]", hint_list))
     }
 }
@@ -215,11 +191,7 @@ impl Highlighter for JsReplCompleter {
     fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
         std::borrow::Cow::Owned(format!("{GRAY}{hint}{RESET}"))
     }
-    fn highlight_candidate<'c>(
-        &self,
-        candidate: &'c str,
-        completion: CompletionType,
-    ) -> std::borrow::Cow<'c, str> {
+    fn highlight_candidate<'c>(&self, candidate: &'c str, completion: CompletionType) -> std::borrow::Cow<'c, str> {
         if completion == CompletionType::List {
             std::borrow::Cow::Owned(format!("{HIGHLIGHT_BG}{HIGHLIGHT_FG}{candidate}{RESET}"))
         } else {
@@ -251,10 +223,7 @@ pub(crate) fn print_help() {
     println!("{DIM}  {:<10} {:<22} {}{RESET}", "命令", "参数", "说明");
     println!("{DIM}  {:-<10} {:-<22} {:-<20}{RESET}", "", "", "");
     for (cmd, args, desc) in commands() {
-        println!(
-            "  {BOLD}{GREEN}{:<10}{RESET} {YELLOW}{:<22}{RESET} {}",
-            cmd, args, desc
-        );
+        println!("  {BOLD}{GREEN}{:<10}{RESET} {YELLOW}{:<22}{RESET} {}", cmd, args, desc);
     }
     println!();
     println!("{BOLD}{CYAN}JavaScript API（在 loadjs/jseval/jsrepl 中可用）:{RESET}");
@@ -281,14 +250,10 @@ pub(crate) fn print_help() {
     println!("{DIM}             {RESET}  .method.impl = null → unhook");
     println!("{DIM}  Jni{RESET}          .FindClass/.RegisterNatives ... → JNI 函数地址");
     println!("{DIM}             {RESET}  .addr(env, \"FindClass\") / .addr(\"FindClass\")");
-    println!(
-        "{DIM}             {RESET}  .find(env, \"FindClass\") / .entries(env) / .table.FindClass"
-    );
+    println!("{DIM}             {RESET}  .find(env, \"FindClass\") / .entries(env) / .table.FindClass");
     println!("{DIM}             {RESET}  .helper.env.getObjectClassName(obj)");
     println!("{DIM}             {RESET}  .helper.structs.JNINativeMethod.readArray(ptr, n)");
-    println!(
-        "{DIM}             {RESET}  .helper.structs.jvalue.readArray(ptr, \"(ILjava/lang/String;)V\")"
-    );
+    println!("{DIM}             {RESET}  .helper.structs.jvalue.readArray(ptr, \"(ILjava/lang/String;)V\")");
     println!("{DIM}  示例:{RESET}");
     println!("{DIM}    jseval Memory.readCString(ptr(0x7f000000)){RESET}");
     println!("{DIM}    jseval JSON.stringify(Module.findByAddress(ptr(0x7f000000))){RESET}");
@@ -297,10 +262,10 @@ pub(crate) fn print_help() {
     println!("{DIM}    loadjs hook(Jni.addr(\"FindClass\"), function(ctx){{console.log(Memory.readCString(ptr(ctx.x1))); return ctx.orig()}}){RESET}");
     println!("{DIM}    loadjs hook(Jni.addr(\"RegisterNatives\"), function(ctx){{console.log(JSON.stringify(Jni.helper.structs.JNINativeMethod.readArray(ptr(ctx.x2), Number(ctx.x3)))); return ctx.orig()}}){RESET}");
     println!("{DIM}    loadjs hook(Jni.addr(\"GetMethodID\"), function(ctx){{console.log(Jni.helper.env.getClassName(ctx.x1), Memory.readCString(ptr(ctx.x2)), Memory.readCString(ptr(ctx.x3))); return ctx.orig()}}){RESET}");
+    println!("{DIM}    loadjs var P=Java.use(\"android.os.Process\"); console.log(P.myPid()){RESET}");
     println!(
-        "{DIM}    loadjs var P=Java.use(\"android.os.Process\"); console.log(P.myPid()){RESET}"
+        "{DIM}    loadjs var S=Java.use(\"java.lang.String\"); var s=S.$new(\"hello\"); console.log(s.length()){RESET}"
     );
-    println!("{DIM}    loadjs var S=Java.use(\"java.lang.String\"); var s=S.$new(\"hello\"); console.log(s.length()){RESET}");
     println!();
 }
 
@@ -336,9 +301,7 @@ pub(crate) fn run_js_repl(sender: &Sender<HostToAgentMessage>) {
 
     // Clone the sender so JsReplCompleter can own it
     let sender_clone = sender.clone();
-    let config = Config::builder()
-        .completion_type(CompletionType::Circular)
-        .build();
+    let config = Config::builder().completion_type(CompletionType::Circular).build();
     let mut rl: Editor<JsReplCompleter, _> = match Editor::with_config(config) {
         Ok(e) => e,
         Err(e) => {

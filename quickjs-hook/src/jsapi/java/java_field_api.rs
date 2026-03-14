@@ -40,8 +40,7 @@ unsafe fn read_field_value(
     match sig_bytes.first() {
         Some(b'Z') => {
             if is_static {
-                let f: GetStaticBooleanFieldFn =
-                    jni_fn!(env, GetStaticBooleanFieldFn, JNI_GET_STATIC_BOOLEAN_FIELD);
+                let f: GetStaticBooleanFieldFn = jni_fn!(env, GetStaticBooleanFieldFn, JNI_GET_STATIC_BOOLEAN_FIELD);
                 JSValue::bool(f(env, obj_or_cls, field_id) != 0).raw()
             } else {
                 let f: GetBooleanFieldFn = jni_fn!(env, GetBooleanFieldFn, JNI_GET_BOOLEAN_FIELD);
@@ -50,8 +49,7 @@ unsafe fn read_field_value(
         }
         Some(b'B') => {
             if is_static {
-                let f: GetStaticByteFieldFn =
-                    jni_fn!(env, GetStaticByteFieldFn, JNI_GET_STATIC_BYTE_FIELD);
+                let f: GetStaticByteFieldFn = jni_fn!(env, GetStaticByteFieldFn, JNI_GET_STATIC_BYTE_FIELD);
                 JSValue::int(f(env, obj_or_cls, field_id) as i32).raw()
             } else {
                 let f: GetByteFieldFn = jni_fn!(env, GetByteFieldFn, JNI_GET_BYTE_FIELD);
@@ -60,8 +58,7 @@ unsafe fn read_field_value(
         }
         Some(b'C') => {
             if is_static {
-                let f: GetStaticCharFieldFn =
-                    jni_fn!(env, GetStaticCharFieldFn, JNI_GET_STATIC_CHAR_FIELD);
+                let f: GetStaticCharFieldFn = jni_fn!(env, GetStaticCharFieldFn, JNI_GET_STATIC_CHAR_FIELD);
                 JSValue::int(f(env, obj_or_cls, field_id) as i32).raw()
             } else {
                 let f: GetCharFieldFn = jni_fn!(env, GetCharFieldFn, JNI_GET_CHAR_FIELD);
@@ -70,8 +67,7 @@ unsafe fn read_field_value(
         }
         Some(b'S') => {
             if is_static {
-                let f: GetStaticShortFieldFn =
-                    jni_fn!(env, GetStaticShortFieldFn, JNI_GET_STATIC_SHORT_FIELD);
+                let f: GetStaticShortFieldFn = jni_fn!(env, GetStaticShortFieldFn, JNI_GET_STATIC_SHORT_FIELD);
                 JSValue::int(f(env, obj_or_cls, field_id) as i32).raw()
             } else {
                 let f: GetShortFieldFn = jni_fn!(env, GetShortFieldFn, JNI_GET_SHORT_FIELD);
@@ -80,8 +76,7 @@ unsafe fn read_field_value(
         }
         Some(b'I') => {
             if is_static {
-                let f: GetStaticIntFieldFn =
-                    jni_fn!(env, GetStaticIntFieldFn, JNI_GET_STATIC_INT_FIELD);
+                let f: GetStaticIntFieldFn = jni_fn!(env, GetStaticIntFieldFn, JNI_GET_STATIC_INT_FIELD);
                 JSValue::int(f(env, obj_or_cls, field_id)).raw()
             } else {
                 let f: GetIntFieldFn = jni_fn!(env, GetIntFieldFn, JNI_GET_INT_FIELD);
@@ -90,8 +85,7 @@ unsafe fn read_field_value(
         }
         Some(b'J') => {
             if is_static {
-                let f: GetStaticLongFieldFn =
-                    jni_fn!(env, GetStaticLongFieldFn, JNI_GET_STATIC_LONG_FIELD);
+                let f: GetStaticLongFieldFn = jni_fn!(env, GetStaticLongFieldFn, JNI_GET_STATIC_LONG_FIELD);
                 ffi::JS_NewBigUint64(ctx, f(env, obj_or_cls, field_id) as u64)
             } else {
                 let f: GetLongFieldFn = jni_fn!(env, GetLongFieldFn, JNI_GET_LONG_FIELD);
@@ -100,8 +94,7 @@ unsafe fn read_field_value(
         }
         Some(b'F') => {
             if is_static {
-                let f: GetStaticFloatFieldFn =
-                    jni_fn!(env, GetStaticFloatFieldFn, JNI_GET_STATIC_FLOAT_FIELD);
+                let f: GetStaticFloatFieldFn = jni_fn!(env, GetStaticFloatFieldFn, JNI_GET_STATIC_FLOAT_FIELD);
                 JSValue::float(f(env, obj_or_cls, field_id) as f64).raw()
             } else {
                 let f: GetFloatFieldFn = jni_fn!(env, GetFloatFieldFn, JNI_GET_FLOAT_FIELD);
@@ -110,8 +103,7 @@ unsafe fn read_field_value(
         }
         Some(b'D') => {
             if is_static {
-                let f: GetStaticDoubleFieldFn =
-                    jni_fn!(env, GetStaticDoubleFieldFn, JNI_GET_STATIC_DOUBLE_FIELD);
+                let f: GetStaticDoubleFieldFn = jni_fn!(env, GetStaticDoubleFieldFn, JNI_GET_STATIC_DOUBLE_FIELD);
                 JSValue::float(f(env, obj_or_cls, field_id)).raw()
             } else {
                 let f: GetDoubleFieldFn = jni_fn!(env, GetDoubleFieldFn, JNI_GET_DOUBLE_FIELD);
@@ -120,8 +112,7 @@ unsafe fn read_field_value(
         }
         Some(b'L') | Some(b'[') => {
             let obj_val = if is_static {
-                let f: GetStaticObjectFieldFn =
-                    jni_fn!(env, GetStaticObjectFieldFn, JNI_GET_STATIC_OBJECT_FIELD);
+                let f: GetStaticObjectFieldFn = jni_fn!(env, GetStaticObjectFieldFn, JNI_GET_STATIC_OBJECT_FIELD);
                 f(env, obj_or_cls, field_id)
             } else {
                 let f: GetObjectFieldFn = jni_fn!(env, GetObjectFieldFn, JNI_GET_OBJECT_FIELD);
@@ -134,16 +125,13 @@ unsafe fn read_field_value(
 
             // Check if String type
             if jni_sig == "Ljava/lang/String;" {
-                let get_str: GetStringUtfCharsFn =
-                    jni_fn!(env, GetStringUtfCharsFn, JNI_GET_STRING_UTF_CHARS);
+                let get_str: GetStringUtfCharsFn = jni_fn!(env, GetStringUtfCharsFn, JNI_GET_STRING_UTF_CHARS);
                 let rel_str: ReleaseStringUtfCharsFn =
                     jni_fn!(env, ReleaseStringUtfCharsFn, JNI_RELEASE_STRING_UTF_CHARS);
 
                 let chars = get_str(env, obj_val, std::ptr::null_mut());
                 let js_result = if !chars.is_null() {
-                    let s = std::ffi::CStr::from_ptr(chars)
-                        .to_string_lossy()
-                        .to_string();
+                    let s = std::ffi::CStr::from_ptr(chars).to_string_lossy().to_string();
                     rel_str(env, obj_val, chars);
                     JSValue::string(ctx, &s).raw()
                 } else {
@@ -183,8 +171,7 @@ pub(super) unsafe extern "C" fn js_java_get_field(
     if argc < 4 {
         return ffi::JS_ThrowTypeError(
             ctx,
-            b"Java.getField() requires 4 arguments: objPtr, className, fieldName, fieldSig\0"
-                .as_ptr() as *const _,
+            b"Java.getField() requires 4 arguments: objPtr, className, fieldName, fieldSig\0".as_ptr() as *const _,
         );
     }
 
@@ -201,16 +188,12 @@ pub(super) unsafe extern "C" fn js_java_get_field(
     } else {
         return ffi::JS_ThrowTypeError(
             ctx,
-            b"Java.getField() first argument must be a pointer (BigUint64/Number/NativePointer)\0"
-                .as_ptr() as *const _,
+            b"Java.getField() first argument must be a pointer (BigUint64/Number/NativePointer)\0".as_ptr() as *const _,
         );
     };
 
     if obj_ptr == 0 {
-        return ffi::JS_ThrowTypeError(
-            ctx,
-            b"Java.getField() objPtr is null\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowTypeError(ctx, b"Java.getField() objPtr is null\0".as_ptr() as *const _);
     }
 
     let class_name = match class_arg.to_string(ctx) {
@@ -236,10 +219,7 @@ pub(super) unsafe extern "C" fn js_java_get_field(
     let field_sig = match sig_arg.to_string(ctx) {
         Some(s) => s,
         None => {
-            return ffi::JS_ThrowTypeError(
-                ctx,
-                b"Java.getField() fieldSig must be a string\0".as_ptr() as *const _,
-            )
+            return ffi::JS_ThrowTypeError(ctx, b"Java.getField() fieldSig must be a string\0".as_ptr() as *const _)
         }
     };
 
@@ -267,10 +247,7 @@ pub(super) unsafe extern "C" fn js_java_get_field(
     let local_obj = new_local_ref(env, obj_ptr as *mut std::ffi::c_void);
     if local_obj.is_null() {
         delete_local_ref(env, cls);
-        return ffi::JS_ThrowInternalError(
-            ctx,
-            b"NewLocalRef failed for objPtr\0".as_ptr() as *const _,
-        );
+        return ffi::JS_ThrowInternalError(ctx, b"NewLocalRef failed for objPtr\0".as_ptr() as *const _);
     }
 
     // GetFieldID
@@ -331,11 +308,7 @@ pub(super) unsafe extern "C" fn js_java_get_field(
     if jni_check_exc(env) {
         delete_local_ref(env, local_obj);
         delete_local_ref(env, cls);
-        let err = CString::new(format!(
-            "JNI exception reading field {}.{}",
-            class_name, field_name
-        ))
-        .unwrap();
+        let err = CString::new(format!("JNI exception reading field {}.{}", class_name, field_name)).unwrap();
         return ffi::JS_ThrowInternalError(ctx, err.as_ptr());
     }
 
@@ -389,8 +362,7 @@ unsafe fn get_runtime_class_name(env: JniEnv, obj: *mut std::ffi::c_void) -> Opt
     let delete_local_ref: DeleteLocalRefFn = jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
     let call_obj: CallObjectMethodAFn = jni_fn!(env, CallObjectMethodAFn, JNI_CALL_OBJECT_METHOD_A);
     let get_str: GetStringUtfCharsFn = jni_fn!(env, GetStringUtfCharsFn, JNI_GET_STRING_UTF_CHARS);
-    let rel_str: ReleaseStringUtfCharsFn =
-        jni_fn!(env, ReleaseStringUtfCharsFn, JNI_RELEASE_STRING_UTF_CHARS);
+    let rel_str: ReleaseStringUtfCharsFn = jni_fn!(env, ReleaseStringUtfCharsFn, JNI_RELEASE_STRING_UTF_CHARS);
 
     let reflect = REFLECT_IDS.get()?;
 
@@ -413,9 +385,7 @@ unsafe fn get_runtime_class_name(env: JniEnv, obj: *mut std::ffi::c_void) -> Opt
         jni_check_exc(env);
         return None;
     }
-    let name = std::ffi::CStr::from_ptr(chars)
-        .to_string_lossy()
-        .to_string();
+    let name = std::ffi::CStr::from_ptr(chars).to_string_lossy().to_string();
     rel_str(env, name_jstr, chars);
     delete_local_ref(env, name_jstr);
     Some(name)
@@ -458,8 +428,7 @@ pub(super) unsafe extern "C" fn js_java_get_field_auto(
     if argc < 3 {
         return ffi::JS_ThrowTypeError(
             ctx,
-            b"_getFieldAuto() requires 3 arguments: objPtr, className, fieldName\0".as_ptr()
-                as *const _,
+            b"_getFieldAuto() requires 3 arguments: objPtr, className, fieldName\0".as_ptr() as *const _,
         );
     }
 
@@ -502,11 +471,8 @@ pub(super) unsafe extern "C" fn js_java_get_field_auto(
     }
 
     // Step 2: Try to look up the field in the declared class
-    if let Some((jni_sig, field_id, is_static, type_name)) =
-        lookup_field_in_cache(&class_name, &field_name)
-    {
-        let delete_local_ref: DeleteLocalRefFn =
-            jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
+    if let Some((jni_sig, field_id, is_static, type_name)) = lookup_field_in_cache(&class_name, &field_name) {
+        let delete_local_ref: DeleteLocalRefFn = jni_fn!(env, DeleteLocalRefFn, JNI_DELETE_LOCAL_REF);
         if is_static {
             let cls = find_class_safe(env, &class_name);
             if cls.is_null() {
@@ -540,9 +506,7 @@ pub(super) unsafe extern "C" fn js_java_get_field_auto(
             if !is_class_cached(rt_cls) {
                 cache_fields_for_class(env, rt_cls);
             }
-            if let Some((jni_sig, field_id, is_static, type_name)) =
-                lookup_field_in_cache(rt_cls, &field_name)
-            {
+            if let Some((jni_sig, field_id, is_static, type_name)) = lookup_field_in_cache(rt_cls, &field_name) {
                 if is_static {
                     let cls = find_class_safe(env, rt_cls);
                     if cls.is_null() {

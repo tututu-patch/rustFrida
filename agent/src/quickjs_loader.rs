@@ -6,14 +6,10 @@
 #![cfg(feature = "quickjs")]
 
 use crate::vma_name::set_anon_vma_name_raw;
-use libc::{
-    mmap, munmap, sysconf, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
-    _SC_PAGESIZE,
-};
+use libc::{mmap, munmap, sysconf, MAP_ANONYMOUS, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, _SC_PAGESIZE};
 use quickjs_hook::{
-    cleanup_engine, cleanup_hook_engine, cleanup_hooks, cleanup_java_hooks, complete_script,
-    get_or_init_engine, init_hook_engine, load_script, set_console_callback, set_qbdi_helper_blob,
-    set_qbdi_output_dir,
+    cleanup_engine, cleanup_hook_engine, cleanup_hooks, cleanup_java_hooks, complete_script, get_or_init_engine,
+    init_hook_engine, load_script, set_console_callback, set_qbdi_helper_blob, set_qbdi_output_dir,
 };
 #[cfg(feature = "qbdi")]
 use quickjs_hook::{preload_qbdi_helper, shutdown_qbdi_helper};
@@ -98,8 +94,7 @@ pub fn init() -> Result<(), String> {
     }
 
     // Allocate executable memory for hooks (64KB)
-    let exec_mem = EXEC_MEM
-        .get_or_init(|| ExecMemory::new(64 * 1024).expect("Failed to allocate executable memory"));
+    let exec_mem = EXEC_MEM.get_or_init(|| ExecMemory::new(64 * 1024).expect("Failed to allocate executable memory"));
 
     // Initialize hook engine
     init_hook_engine(exec_mem.as_ptr(), exec_mem.size())?;

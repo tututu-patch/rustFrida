@@ -32,26 +32,20 @@ pub(crate) fn get_lib_base(pid: Option<i32>, lib_name: &str) -> Result<usize, St
 
     let mut file = File::open(&maps_path).map_err(|e| format!("无法打开maps文件: {}", e))?;
     let mut raw = Vec::new();
-    std::io::Read::read_to_end(&mut file, &mut raw)
-        .map_err(|e| format!("读取maps文件失败: {}", e))?;
+    std::io::Read::read_to_end(&mut file, &mut raw).map_err(|e| format!("读取maps文件失败: {}", e))?;
 
     for line in String::from_utf8_lossy(&raw).lines() {
         if line.contains(lib_name) {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if let Some(addr_range) = parts.get(0) {
                 if let Some(start_addr) = addr_range.split('-').next() {
-                    return usize::from_str_radix(start_addr, 16)
-                        .map_err(|e| format!("解析地址失败: {}", e));
+                    return usize::from_str_radix(start_addr, 16).map_err(|e| format!("解析地址失败: {}", e));
                 }
             }
         }
     }
 
-    Err(format!(
-        "未找到进程 {} 的{}加载地址",
-        pid.unwrap_or(-1),
-        lib_name
-    ))
+    Err(format!("未找到进程 {} 的{}加载地址", pid.unwrap_or(-1), lib_name))
 }
 
 fn find_map_line_for_addr(pid: i32, addr: u64) -> Option<String> {
@@ -128,14 +122,7 @@ fn set_registers(pid: i32, regs: &UserRegs) -> Result<(), String> {
         iov_base: regs as *const _ as *mut c_void,
         iov_len: size_of_val(regs),
     };
-    let result = unsafe {
-        libc::ptrace(
-            PTRACE_SETREGSET,
-            pid as pid_t,
-            1,
-            &mut iov as *mut _ as *mut c_void,
-        )
-    };
+    let result = unsafe { libc::ptrace(PTRACE_SETREGSET, pid as pid_t, 1, &mut iov as *mut _ as *mut c_void) };
     if result == -1 {
         let errno = unsafe { *libc::__errno() };
         return Err(format!("设置寄存器失败，错误码: {}", errno));
@@ -220,10 +207,10 @@ pub(crate) fn call_target_function(
 
                     return Ok(return_value);
                 } else {
-                    let pc_map = find_map_line_for_addr(pid, regs.pc)
-                        .unwrap_or_else(|| "<unknown mapping>".to_string());
-                    let lr_map = find_map_line_for_addr(pid, regs.regs[30])
-                        .unwrap_or_else(|| "<unknown mapping>".to_string());
+                    let pc_map =
+                        find_map_line_for_addr(pid, regs.pc).unwrap_or_else(|| "<unknown mapping>".to_string());
+                    let lr_map =
+                        find_map_line_for_addr(pid, regs.regs[30]).unwrap_or_else(|| "<unknown mapping>".to_string());
                     return Err(format!(
                         concat!(
                             "函数执行异常，",
@@ -300,11 +287,7 @@ fn write_remote_mem(pid: i32, addr: usize, data: *const u8, size: usize) -> Resu
 
         // 合并新字节到 word（低字节 → 低地址，ARM64 小端序）
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.add(offset),
-                &mut word as *mut u64 as *mut u8,
-                write_size,
-            );
+            std::ptr::copy_nonoverlapping(data.add(offset), &mut word as *mut u64 as *mut u8, write_size);
         }
 
         // 写入目标进程
@@ -401,11 +384,7 @@ pub(crate) fn read_memory<T: Default>(pid: i32, addr: usize) -> Result<T, String
     let bytes = read_remote_mem(pid, addr, std::mem::size_of::<T>())?;
     let mut val = T::default();
     unsafe {
-        std::ptr::copy_nonoverlapping(
-            bytes.as_ptr(),
-            &mut val as *mut T as *mut u8,
-            std::mem::size_of::<T>(),
-        );
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), &mut val as *mut T as *mut u8, std::mem::size_of::<T>());
     }
     Ok(val)
 }
@@ -443,8 +422,7 @@ pub(crate) fn parse_proc_maps(pid: u32) -> Result<Vec<MapEntry>, String> {
     let maps_path = format!("/proc/{}/maps", pid);
     let mut file = File::open(&maps_path).map_err(|e| format!("无法打开 {}: {}", maps_path, e))?;
     let mut raw = Vec::new();
-    std::io::Read::read_to_end(&mut file, &mut raw)
-        .map_err(|e| format!("读取 {} 失败: {}", maps_path, e))?;
+    std::io::Read::read_to_end(&mut file, &mut raw).map_err(|e| format!("读取 {} 失败: {}", maps_path, e))?;
     let mut entries = Vec::new();
 
     for line in String::from_utf8_lossy(&raw).lines() {
@@ -459,10 +437,8 @@ pub(crate) fn parse_proc_maps(pid: u32) -> Result<Vec<MapEntry>, String> {
             continue;
         }
 
-        let start =
-            u64::from_str_radix(addr_parts[0], 16).map_err(|e| format!("解析地址失败: {}", e))?;
-        let end =
-            u64::from_str_radix(addr_parts[1], 16).map_err(|e| format!("解析地址失败: {}", e))?;
+        let start = u64::from_str_radix(addr_parts[0], 16).map_err(|e| format!("解析地址失败: {}", e))?;
+        let end = u64::from_str_radix(addr_parts[1], 16).map_err(|e| format!("解析地址失败: {}", e))?;
 
         let perms = parts[1].to_string();
         let offset = if parts.len() > 2 {
@@ -575,10 +551,7 @@ pub(crate) fn find_pid_by_name(name: &str) -> Result<i32, String> {
                 };
                 println!("  PID {:6}: {}", pid, display);
             }
-            Err(format!(
-                "找到 {} 个匹配进程，请使用 --pid <n> 精确指定",
-                matches.len()
-            ))
+            Err(format!("找到 {} 个匹配进程，请使用 --pid <n> 精确指定", matches.len()))
         }
     }
 }
