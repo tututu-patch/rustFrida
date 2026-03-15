@@ -87,7 +87,7 @@ fn is_executable(perms: &str) -> bool {
     perms.as_bytes().get(2) == Some(&b'x')
 }
 
-fn read_exec_maps() -> Result<Vec<ExecMap>, String> {
+fn read_all_maps() -> Result<Vec<ExecMap>, String> {
     let maps = read_proc_self_maps().ok_or_else(|| "failed to read /proc/self/maps".to_string())?;
     Ok(maps
         .lines()
@@ -99,11 +99,6 @@ fn read_exec_maps() -> Result<Vec<ExecMap>, String> {
             let _dev = fields.next()?;
             let _inode = fields.next()?;
             let path = fields.next().unwrap_or("");
-
-            if !is_executable(perms) {
-                return None;
-            }
-
             let mut parts = range.splitn(2, '-');
             let start = u64::from_str_radix(parts.next()?, 16).ok()?;
             let end = u64::from_str_radix(parts.next()?, 16).ok()?;
@@ -114,6 +109,13 @@ fn read_exec_maps() -> Result<Vec<ExecMap>, String> {
                 path: path.to_string(),
             })
         })
+        .collect())
+}
+
+fn read_exec_maps() -> Result<Vec<ExecMap>, String> {
+    Ok(read_all_maps()?
+        .into_iter()
+        .filter(|e| is_executable(&e.perms))
         .collect())
 }
 
@@ -129,6 +131,33 @@ fn is_dynamic_exec_map(map: &ExecMap) -> bool {
         return false;
     }
     map.path.is_empty() || map.path.starts_with("[anon:")
+}
+
+fn is_anon_map(map: &ExecMap) -> bool {
+    map.path.is_empty() || map.path.starts_with("[anon:")
+}
+
+/// 从 all maps 中收集 target 所在匿名段的完整范围（包括相邻的数据段）
+/// 返回所有相邻的匿名 map 条目（代码段 + 数据段）
+fn collect_anon_region(target: u64) -> Option<Vec<ExecMap>> {
+    let all = read_all_maps().ok()?;
+    let idx = all.iter().position(|e| target >= e.start && target < e.end)?;
+    if !is_anon_map(&all[idx]) {
+        return None;
+    }
+
+    // 向前扩展：相邻且匿名
+    let mut start_idx = idx;
+    while start_idx > 0 && is_anon_map(&all[start_idx - 1]) && all[start_idx - 1].end == all[start_idx].start {
+        start_idx -= 1;
+    }
+    // 向后扩展
+    let mut end_idx = idx;
+    while end_idx + 1 < all.len() && is_anon_map(&all[end_idx + 1]) && all[end_idx].end == all[end_idx + 1].start {
+        end_idx += 1;
+    }
+
+    Some(all[start_idx..=end_idx].to_vec())
 }
 
 pub(crate) fn collect_exec_ranges(target: u64) -> Result<Vec<ExecMap>, String> {
@@ -170,10 +199,8 @@ fn perms_to_u32(perms: &str) -> u32 {
     prot
 }
 
-pub(crate) fn dump_dynamic_exec_map(map: &ExecMap) {
-    if !is_dynamic_exec_map(map) {
-        return;
-    }
+/// dump 单个 map 条目的内存到 trace bundle
+fn dump_map_region(map: &ExecMap) {
     {
         let mut dumped = DUMPED_DYNAMIC_RANGES.lock().unwrap_or_else(|e| e.into_inner());
         if !dumped.insert((map.start, map.end)) {
@@ -181,9 +208,7 @@ pub(crate) fn dump_dynamic_exec_map(map: &ExecMap) {
         }
     }
     let size = (map.end - map.start) as usize;
-    // 直接从虚拟地址读取, /proc/self/mem 对某些匿名 rwx 页面可能返回 0 字节
     let data = unsafe { std::slice::from_raw_parts(map.start as *const u8, size) }.to_vec();
-
     let perm = perms_to_u32(&map.perms);
     for (chunk_index, chunk) in data.chunks(DYNAMIC_EXEC_CHUNK_SIZE).enumerate() {
         trace_send(TraceBundleEvent {
@@ -196,6 +221,15 @@ pub(crate) fn dump_dynamic_exec_map(map: &ExecMap) {
                 data: chunk.to_vec(),
             })),
         });
+    }
+}
+
+/// dump 目标地址所在的完整匿名段（包括相邻的数据段）
+fn dump_anon_region(target: u64) {
+    if let Some(region) = collect_anon_region(target) {
+        for map in &region {
+            dump_map_region(map);
+        }
     }
 }
 
@@ -279,10 +313,10 @@ extern "C" fn exec_transfer_call_cb(
         }
         let dest = (*gpr).pc;
         if let Some(map) = find_exec_map(dest) {
-            // 匿名/动态内存 → 添加范围 + dump
+            // 匿名/动态内存 → instrument 当前 exec 段, dump 完整匿名段(含数据)
             if is_dynamic_exec_map(&map) {
                 ensure_dynamic_exec_range_instrumented(vm, &map);
-                dump_dynamic_exec_map(&map);
+                dump_anon_region(dest);
                 return VMAction_QBDI_BREAK_TO_VM;
             }
             // app 内的其他 SO → 添加整个模块
@@ -297,10 +331,10 @@ extern "C" fn exec_transfer_call_cb(
             return VMAction_QBDI_CONTINUE;
         }
 
-        // maps 中找不到 → 按页对齐加入 instrumented range 并 dump
+        // maps 中找不到 → 按页对齐 instrument，dump 单页
         if let Some(map) = fallback_page_map(dest) {
             ensure_dynamic_exec_range_instrumented(vm, &map);
-            dump_dynamic_exec_map(&map);
+            dump_map_region(&map);
             return VMAction_QBDI_BREAK_TO_VM;
         }
     }
