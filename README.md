@@ -454,3 +454,9 @@ Trace 文件默认输出到 `/data/data/<package>/trace_bundle.pb`，配合 qbdi
 - Spawn 模式下 Java hook 必须放在 `Java.ready(fn)` 里
 - `Java.setStealth()` 必须在 `Java.use().impl` 之前调用
 - `callNative()` 仅支持整数/指针参数（最多 6 个）
+
+---
+
+## 免责声明
+
+本项目仅供安全研究、逆向工程学习和授权测试用途。使用者应确保在合法授权范围内使用本工具，遵守所在地区的法律法规。作者不对任何滥用、非法使用或由此造成的损失承担责任。使用本项目即表示您同意自行承担所有风险。
