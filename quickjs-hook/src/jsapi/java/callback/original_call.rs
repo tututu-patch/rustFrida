@@ -98,21 +98,21 @@ unsafe fn marshal_js_to_jvalue(
             }
         }
         b'L' | b'[' => {
-            // JS string → NewStringUTF (must check before to_u64, which coerces strings to NaN→0)
+            // JS string → NewStringUTF for ANY Object type (not just Ljava/lang/String;).
+            // ctx.orig() 返回 String 时 marshal_jni_arg_to_js 会 unbox 为 JS string，
+            // 但 return_type_sig 可能是 Ljava/lang/Object; (如 HashMap.put)。
+            // 必须对所有 L 类型创建 JNI String，否则 fallback 返回 QuickJS 内部指针 → SIGSEGV。
             if val.is_string() {
-                if sig == "Ljava/lang/String;" {
-                    if let Some(s) = val.to_string(ctx) {
-                        let cstr = match CString::new(s) {
-                            Ok(c) => c,
-                            Err(_) => return 0,
-                        };
-                        let new_str: NewStringUtfFn =
-                            jni_fn!(env, NewStringUtfFn, JNI_NEW_STRING_UTF);
-                        let jstr = new_str(env, cstr.as_ptr());
-                        return jstr as u64;
-                    }
+                if let Some(s) = val.to_string(ctx) {
+                    let cstr = match CString::new(s) {
+                        Ok(c) => c,
+                        Err(_) => return 0,
+                    };
+                    let new_str: NewStringUtfFn =
+                        jni_fn!(env, NewStringUtfFn, JNI_NEW_STRING_UTF);
+                    let jstr = new_str(env, cstr.as_ptr());
+                    return jstr as u64;
                 }
-                // Non-String object param with string value — toString won't help, return 0
                 return 0;
             }
             // JS object → try __jptr property (Proxy-wrapped or {__jptr, __jclass})
@@ -125,8 +125,9 @@ unsafe fn marshal_js_to_jvalue(
                 }
                 jptr_val.free(ctx);
             }
-            // BigUint64 or number (raw jobject pointer)
-            js_value_to_u64_or_zero(ctx, val)
+            // 非对象 JS 值 (number/boolean — unboxed primitive) 无法安全转回 JNI ref，返回 null。
+            // BigUint64 作为 raw jobject 指针的情况由上面 __jptr 分支处理。
+            0
         }
         _ => js_value_to_u64_or_zero(ctx, val),
     }
@@ -449,9 +450,34 @@ unsafe extern "C" fn js_call_original(
             if ret_raw == 0 {
                 ffi::qjs_null()
             } else {
-                // Convert to readable JS value (String → JS string, objects → wrapped)
-                // using the same logic as arg marshalling.
-                marshal_jni_arg_to_js(ctx, env, ret_raw, 0, Some(&return_type_sig))
+                let js_val = marshal_jni_arg_to_js(ctx, env, ret_raw, 0, Some(&return_type_sig));
+                // 如果 marshal 返回了 {__jptr} wrapper（普通 Object），直接用
+                if JSValue(js_val).is_object() {
+                    let jptr = JSValue(js_val).get_property(ctx, "__jptr");
+                    let has_jptr = !jptr.is_undefined();
+                    jptr.free(ctx);
+                    if has_jptr {
+                        return js_val;
+                    }
+                }
+                // unboxed (String/Integer/Boolean/Array 等):
+                // 包装为 {value: 可读值, __origJobject: 原始 jobject}
+                // handle_result 优先读 __origJobject，确保所有类型安全 round-trip
+                let wrapper = ffi::JS_NewObject(ctx);
+                let w = JSValue(wrapper);
+                w.set_property(ctx, "value", JSValue(js_val));
+                let ptr_val = ffi::JS_NewBigUint64(ctx, ret_raw);
+                w.set_property(ctx, "__origJobject", JSValue(ptr_val));
+                // toString() 返回可读值，console.log 友好
+                let to_str_src = b"(function(){return String(this.value);})\0";
+                let to_str = ffi::JS_Eval(ctx, to_str_src.as_ptr() as *const _,
+                    (to_str_src.len() - 1) as _, b"<toString>\0".as_ptr() as *const _, 0);
+                if ffi::qjs_is_exception(to_str) == 0 {
+                    w.set_property(ctx, "toString", JSValue(to_str));
+                } else {
+                    ffi::qjs_free_value(ctx, to_str);
+                }
+                wrapper
             }
         }
         _ => ffi::qjs_undefined(),

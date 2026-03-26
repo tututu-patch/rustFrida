@@ -14,7 +14,7 @@ use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
 
 const CALLBACK_LOCK_WAIT_SPIN_LIMIT: usize = 32;
-const CALLBACK_LOCK_WAIT_TIMEOUT: Duration = Duration::from_millis(3);
+const CALLBACK_LOCK_WAIT_TIMEOUT: Duration = Duration::from_millis(20);
 const JS_MAX_SAFE_INTEGER: u64 = 1u64 << 53;
 
 pub(crate) enum JsEngineCallbackGuard {

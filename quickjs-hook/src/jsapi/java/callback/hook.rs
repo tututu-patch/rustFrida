@@ -129,16 +129,7 @@ pub(super) unsafe extern "C" fn java_hook_callback(
         )
     }; // lock released
 
-    // Push local frame to protect JNI local refs from overflowing the table.
-    // Each marshal_jni_arg_to_js call may create local refs (GetStringUTFChars, NewObject, etc.).
     let hook_ctx_env: JniEnv = (*ctx_ptr).x[0] as JniEnv;
-    let has_local_frame = if !hook_ctx_env.is_null() {
-        let push_frame: PushLocalFrameFn =
-            jni_fn!(hook_ctx_env, PushLocalFrameFn, JNI_PUSH_LOCAL_FRAME);
-        push_frame(hook_ctx_env, (2 + param_count * 2) as i32) == 0
-    } else {
-        false
-    };
 
     // Track whether handle_result was called (false if JS exception occurred)
     let mut result_was_set = false;
@@ -212,14 +203,33 @@ pub(super) unsafe extern "C" fn java_hook_callback(
                         }
                     }
                     b'L' | b'[' => {
-                        // Object/array return: marshal JS value back to JNI ref.
-                        // Handles: JS string → NewStringUTF, __jptr wrapper → raw ref,
-                        // BigUint64 → raw ref, null/undefined → 0.
-                        let env: JniEnv = hook_ctx_env;
-                        if !env.is_null() {
-                            marshal_js_to_jvalue(ctx, env, result_val, Some(&return_type_sig))
+                        // 优先从 __origJobject 读取原始 JNI ref（ctx.orig() 对 unboxed 值设置）。
+                        // 确保 String/Integer/Boolean/Array 等所有类型安全 round-trip。
+                        if result_val.is_object() {
+                            let orig = result_val.get_property(ctx, "__origJobject");
+                            if !orig.is_undefined() && !orig.is_null() {
+                                let r = js_value_to_u64_or_zero(ctx, orig);
+                                orig.free(ctx);
+                                r
+                            } else {
+                                orig.free(ctx);
+                                let env: JniEnv = hook_ctx_env;
+                                if !env.is_null() {
+                                    marshal_js_to_jvalue(ctx, env, result_val, Some(&return_type_sig))
+                                } else {
+                                    js_value_to_u64_or_zero(ctx, result_val)
+                                }
+                            }
+                        } else if result_val.is_null() || result_val.is_undefined() {
+                            0u64
                         } else {
-                            js_value_to_u64_or_zero(ctx, result_val)
+                            // JS primitive (string/number/boolean) — 用户自己构造的返回值
+                            let env: JniEnv = hook_ctx_env;
+                            if !env.is_null() {
+                                marshal_js_to_jvalue(ctx, env, result_val, Some(&return_type_sig))
+                            } else {
+                                0u64
+                            }
                         }
                     }
                     _ => {
@@ -239,6 +249,7 @@ pub(super) unsafe extern "C" fn java_hook_callback(
     // the original call silently drops side effects; for constructors that means
     // the object may be returned without its <init> body having run.
     if !result_was_set {
+        // Skip 路径: JS engine 繁忙时调用原始方法确保语义正确。
         let hook_ctx = &*ctx_ptr;
         let env: JniEnv = hook_ctx.x[0] as JniEnv;
         if !env.is_null() {
@@ -258,8 +269,6 @@ pub(super) unsafe extern "C" fn java_hook_callback(
                 jargs_ptr,
             );
             if return_type == b'V' {
-                // Void methods, especially constructors, must preserve the original
-                // JNIEnv* in x0 for ART's GenericJNI epilogue.
                 (*ctx_ptr).x[0] = hook_ctx.x[0];
             } else {
                 (*ctx_ptr).x[0] = ret_raw;
@@ -269,21 +278,6 @@ pub(super) unsafe extern "C" fn java_hook_callback(
         }
     }
 
-    // Always PopLocalFrame to keep IRT segments balanced.
-    // For object returns (L/[): PopLocalFrame(env, ret_obj) transfers the local ref
-    // to the outer frame (ART's JNI transition frame) so GenericJniMethodEnd can find it.
-    // For other types: PopLocalFrame(env, null) just cleans up.
-    if has_local_frame && !hook_ctx_env.is_null() {
-        let pop_frame: PopLocalFrameFn =
-            jni_fn!(hook_ctx_env, PopLocalFrameFn, JNI_POP_LOCAL_FRAME);
-        if return_type == b'L' || return_type == b'[' {
-            let ret_obj = (*ctx_ptr).x[0] as *mut std::ffi::c_void;
-            let preserved = pop_frame(hook_ctx_env, ret_obj);
-            (*ctx_ptr).x[0] = preserved as u64;
-        } else {
-            pop_frame(hook_ctx_env, std::ptr::null_mut());
-        }
-    }
 }
 
 // ============================================================================

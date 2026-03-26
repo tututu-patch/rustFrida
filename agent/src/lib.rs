@@ -29,7 +29,7 @@ mod stalker;
 
 use crate::communication::{
     flush_cached_logs, is_cmd_frame, is_qbdi_helper_frame, log_msg, read_frame, register_stream_fd, send_complete,
-    send_eval_err, send_eval_ok, send_hello, shutdown_stream, write_stream, GLOBAL_STREAM,
+    send_eval_err, send_eval_ok, send_hello, shutdown_stream, start_log_writer, write_stream, GLOBAL_STREAM,
 };
 use crate::crash_handler::{install_crash_handlers, install_panic_hook};
 use libc::{kill, pid_t, SIGSTOP};
@@ -142,6 +142,8 @@ pub extern "C" fn hello_entry(args_ptr: *mut c_void) -> *mut c_void {
     let write_half = sock.try_clone().expect("stream clone failed");
     register_stream_fd(&write_half);
     GLOBAL_STREAM.set(std::sync::Mutex::new(write_half)).unwrap();
+    // 启动异步日志 writer 线程：write_stream() 只 push channel，此线程通过 GLOBAL_STREAM 写 socket
+    start_log_writer();
     send_hello();
     std::thread::sleep(Duration::from_millis(100));
     flush_cached_logs();
