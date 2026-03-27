@@ -193,7 +193,7 @@ pub(crate) fn repack_props(profile_name: &str) -> Result<(), String> {
             continue;
         }
         let filename = entry.file_name().to_string_lossy().to_string();
-        if matches!(filename.as_str(), "props.txt" | "properties_serial" | ".active") {
+        if matches!(filename.as_str(), "props.txt" | "properties_serial" | "property_info" | ".active") {
             continue;
         }
 
@@ -299,7 +299,7 @@ fn add_prop_to_profile(
         let filename = entry.file_name().to_string_lossy().to_string();
         if matches!(
             filename.as_str(),
-            "props.txt" | "override.prop" | "properties_serial" | ".active"
+            "props.txt" | "override.prop" | "properties_serial" | "property_info" | ".active"
         ) {
             continue;
         }
@@ -413,7 +413,7 @@ fn patch_prop_files(
         // 跳过非属性区域文件
         if matches!(
             filename.as_str(),
-            "props.txt" | "override.prop" | "properties_serial"
+            "props.txt" | "override.prop" | "properties_serial" | "property_info"
         ) {
             continue;
         }
