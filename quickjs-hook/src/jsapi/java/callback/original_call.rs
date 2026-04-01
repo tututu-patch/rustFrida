@@ -35,7 +35,7 @@ macro_rules! dispatch_call {
 /// Handles: primitives (Z/B/C/S/I/J/F/D), String (JS string → NewStringUTF),
 /// objects ({__jptr} or Proxy → extract raw pointer), BigUint64 (raw pointer),
 /// null/undefined → 0.
-unsafe fn marshal_js_to_jvalue(
+pub(super) unsafe fn marshal_js_to_jvalue(
     ctx: *mut ffi::JSContext,
     env: JniEnv,
     val: JSValue,

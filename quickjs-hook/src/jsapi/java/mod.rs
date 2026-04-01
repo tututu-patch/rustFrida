@@ -648,6 +648,7 @@ pub fn register_java_api(ctx: &JSContext) {
         );
         add_cfunction_to_object(ctx_ptr, java_obj, "_newObject", js_java_new_object, 2);
         add_cfunction_to_object(ctx_ptr, java_obj, "_getFieldAuto", js_java_get_field_auto, 3);
+        add_cfunction_to_object(ctx_ptr, java_obj, "_setFieldAuto", js_java_set_field_auto, 4);
         add_cfunction_to_object(ctx_ptr, java_obj, "getField", js_java_get_field, 4);
 
         // 检测面测试 API

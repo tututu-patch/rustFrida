@@ -8,6 +8,7 @@
     var _invokeStaticMethod = Java._invokeStaticMethod;
     var _newObject = Java._newObject;
     var _getFieldAuto = Java._getFieldAuto;
+    var _setFieldAuto = Java._setFieldAuto;
     var _classLoaders = Java._classLoaders;
     var _findClassWithLoader = Java._findClassWithLoader;
     var _setClassLoader = Java._setClassLoader;
@@ -17,6 +18,7 @@
     delete Java._invokeStaticMethod;
     delete Java._newObject;
     delete Java._getFieldAuto;
+    delete Java._setFieldAuto;
     delete Java._classLoaders;
     delete Java._findClassWithLoader;
     delete Java._setClassLoader;
@@ -327,6 +329,12 @@
 
                 // 字段也没有：兜底返回方法调用器（可能是继承方法不在 _methods 列表中）
                 return _makeInstanceMethodInvoker(target, prop);
+            },
+            set: function(target, prop, value) {
+                if (typeof prop !== "string") return false;
+                // 通过 JNI 设置 Java 字段值
+                _setFieldAuto(target.__jptr, target.__jclass, prop, value);
+                return true;
             }
         };
         return new Proxy(target, handler);
