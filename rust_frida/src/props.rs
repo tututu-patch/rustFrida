@@ -447,21 +447,80 @@ pub(crate) fn prep_prop_profile(profile_name: &str) -> Result<String, String> {
 
 // ─── 内部实现 ────────────────────────────────────────────────────────────────
 
-/// 向 profile 中添加新属性（当属性不存在时）
-///
-/// 策略: 扫描所有 prop_area 文件，按前缀匹配度选择最合适的文件，
-/// 在原始二进制上原地插入 trie 节点 + prop_info（保留已有偏移不变）。
-fn add_prop_to_profile(
-    profile_dir: &str,
-    key: &str,
-    value: &str,
-) -> Result<(), String> {
+/// 解析 property_info 二进制 trie，查找属性名对应的 context (area file name)。
+/// property_info 格式: header(32B) + ... + contexts_table + trie_nodes
+fn lookup_property_context(profile_dir: &str, key: &str) -> Option<String> {
+    let pi_path = format!("{}/property_info", profile_dir);
+    let data = std::fs::read(&pi_path).ok()?;
+    if data.len() < 32 { return None; }
+
+    let contexts_off = u32::from_le_bytes(data[12..16].try_into().ok()?) as usize;
+    let root_off = u32::from_le_bytes(data[28..32].try_into().ok()?) as usize;
+
+    // 读取 contexts 字符串表（null-separated list）
+    let contexts_data = &data[contexts_off..];
+
+    // 遍历 property_info trie 查找最佳匹配的 context
+    // property_info_area_node 布局:
+    //   uint32_t name_offset     +0  (相对于 context_area 起始)
+    //   uint32_t name_length     +4
+    //   uint32_t context_index   +8
+    //   uint32_t type_index      +12
+    //   uint32_t left            +16
+    //   uint32_t right           +20
+    //   uint32_t children        +24
+    //   uint32_t name_length_2   +28 (? 有些版本不同)
+    // 但实际格式可能更简单。用 prefix match 方式遍历。
+
+    // 简单方案: 从 /dev/__properties__/ 上的 property_contexts 或 plat_property_contexts 读取
+    // 这些是文本文件，格式: prefix context_name
+    let ctx_files = [
+        "/system/etc/selinux/plat_property_contexts",
+        "/vendor/etc/selinux/vendor_property_contexts",
+        "/system_ext/etc/selinux/system_ext_property_contexts",
+    ];
+
+    let mut best_prefix = String::new();
+    let mut best_context = String::new();
+
+    for ctx_file in &ctx_files {
+        if let Ok(content) = std::fs::read_to_string(ctx_file) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') { continue; }
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 2 { continue; }
+                let prefix = parts[0];
+                let context = parts[1];
+                // 精确匹配或前缀匹配
+                let matches = if prefix.ends_with('*') {
+                    let p = &prefix[..prefix.len()-1];
+                    key.starts_with(p) && p.len() > best_prefix.len()
+                } else {
+                    key == prefix && prefix.len() > best_prefix.len()
+                };
+                if matches {
+                    best_prefix = prefix.to_string();
+                    best_context = context.to_string();
+                }
+            }
+        }
+    }
+
+    if best_context.is_empty() {
+        return None;
+    }
+
+    // context 格式: "u:object_r:bootloader_prop:s0" → 返回 area file name
+    Some(best_context)
+}
+
+/// 前缀启发式选择最匹配的 area file（fallback）
+fn find_best_match_area(profile_dir: &str, key: &str) -> Result<String, String> {
     let entries = std::fs::read_dir(profile_dir)
         .map_err(|e| format!("读取 {} 失败: {}", profile_dir, e))?;
 
     let key_parts: Vec<&str> = key.split('.').collect();
-
-    // 候选文件: (路径, 属性数, 前缀匹配段数)
     let mut best_path: Option<String> = None;
     let mut best_count: usize = 0;
     let mut best_score: usize = 0;
@@ -469,52 +528,32 @@ fn add_prop_to_profile(
     for entry in entries {
         let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
         let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
+        if !path.is_file() { continue; }
         let filename = entry.file_name().to_string_lossy().to_string();
-        if matches!(
-            filename.as_str(),
+        if matches!(filename.as_str(),
             "props.txt" | "override.prop" | "properties_serial" | "property_info" | ".active"
-        ) {
-            continue;
-        }
+        ) { continue; }
 
-        let data =
-            std::fs::read(&path).map_err(|e| format!("读取 {:?} 失败: {}", path, e))?;
-        if data.len() < PROP_AREA_HEADER_SIZE {
-            continue;
-        }
+        let data = std::fs::read(&path).map_err(|e| format!("读取 {:?} 失败: {}", path, e))?;
+        if data.len() < PROP_AREA_HEADER_SIZE { continue; }
         let magic = u32::from_le_bytes(data[8..12].try_into().unwrap());
-        if magic != PROP_AREA_MAGIC {
-            continue;
-        }
+        if magic != PROP_AREA_MAGIC { continue; }
 
         let props = parse_prop_area(&data);
-        if props.is_empty() {
-            continue;
-        }
+        if props.is_empty() { continue; }
 
-        // 计算该文件中属性与新 key 的最长公共前缀段数
         let mut file_score = 0usize;
         for (existing_key, _) in &props {
             let existing_parts: Vec<&str> = existing_key.split('.').collect();
-            let common = key_parts
-                .iter()
-                .zip(existing_parts.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            if common > file_score {
-                file_score = common;
-            }
+            let common = key_parts.iter().zip(existing_parts.iter())
+                .take_while(|(a, b)| a == b).count();
+            if common > file_score { file_score = common; }
         }
 
         let better = match &best_path {
             None => true,
-            Some(_) => {
-                file_score > best_score
-                    || (file_score == best_score && props.len() > best_count)
-            }
+            Some(_) => file_score > best_score
+                || (file_score == best_score && props.len() > best_count),
         };
         if better {
             best_path = Some(path.to_string_lossy().to_string());
@@ -523,9 +562,27 @@ fn add_prop_to_profile(
         }
     }
 
-    let target_path = best_path.ok_or_else(|| {
-        "Profile 中没有可用的属性区域文件".to_string()
-    })?;
+    best_path.ok_or_else(|| "Profile 中没有可用的属性区域文件".to_string())
+}
+
+/// 向 profile 中添加新属性（当属性不存在时）
+fn add_prop_to_profile(
+    profile_dir: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    // 策略 1: 解析 property_info 获取精确的 context name
+    let target_path = if let Some(ctx) = lookup_property_context(profile_dir, key) {
+        let path = format!("{}/{}", profile_dir, ctx);
+        if std::path::Path::new(&path).exists() {
+            path
+        } else {
+            find_best_match_area(profile_dir, key)?
+        }
+    } else {
+        // 策略 2: property_info 没找到映射，用前缀启发式
+        find_best_match_area(profile_dir, key)?
+    };
 
     // 在原始文件上原地插入新属性（保留 trie 布局）
     let mut data = std::fs::read(&target_path)
@@ -544,10 +601,9 @@ fn add_prop_to_profile(
         set_selinux_context(&target_path, ctx);
     }
     log_info!(
-        "添加新属性 [{}] 到 {} (共 {} 条属性)",
+        "添加新属性 [{}] 到 {}",
         key,
         filename,
-        best_count + 1
     );
 
     Ok(())
