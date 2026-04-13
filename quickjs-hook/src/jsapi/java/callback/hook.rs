@@ -257,15 +257,14 @@ pub(super) unsafe extern "C" fn java_hook_callback(
         },
     );
 
-    // Fallback: if JS callback was skipped (engine busy) or threw an exception,
-    // handle_result was NOT called. We must still invoke the original method.
+    // Fallback: if JS callback threw an exception, handle_result was NOT called.
+    // We must still invoke the original method to preserve semantics.
     //
-    // For non-void methods, this avoids returning the entry JNIEnv* as if it were
-    // a real return value. For void methods this is still required because skipping
-    // the original call silently drops side effects; for constructors that means
-    // the object may be returned without its <init> body having run.
+    // 注意: JS engine busy 导致的 skip 不会走到这里 — art_router_stack_check
+    // 在路由前检测到 JS lock 不可用时直接 bypass（走 not_found → trampoline），
+    // 完整保留 Quick 约定寄存器，方法以原始状态执行，不进入 replacement/callback。
+    // 这里只处理 JS 异常等极端情况。
     if !result_was_set {
-        // Skip 路径: JS engine 繁忙时调用原始方法确保语义正确。
         let hook_ctx = &*ctx_ptr;
         let env: JniEnv = hook_ctx.x[0] as JniEnv;
         if !env.is_null() {

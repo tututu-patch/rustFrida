@@ -42,6 +42,10 @@ pub(super) struct JavaHookData {
     // Hooked class name (dot notation, for wrapping object args)
     #[allow(dead_code)]
     pub(super) class_name: String,
+    /// Layer 3 art_router trampoline 地址 (quickCode 原始指令 + jump back)。
+    /// callback skip fallback 用它直接调原始方法，避免走 JNI re-entry 路径。
+    /// 0 = 无 trampoline（非 compiled 方法，走 Layer 1/2 路由）。
+    pub(super) quick_trampoline: u64,
 }
 
 unsafe impl Send for JavaHookData {}

@@ -820,38 +820,76 @@ unsafe fn should_replace_for_stack(replacement: u64) -> bool {
 static BYPASS_KEY_INIT: std::sync::Once = std::sync::Once::new();
 static mut BYPASS_KEY: libc::pthread_key_t = 0;
 
+/// TLS bypass 栈析构函数：释放 Vec<u64> 堆内存
+unsafe extern "C" fn bypass_stack_destructor(ptr: *mut std::ffi::c_void) {
+    if !ptr.is_null() {
+        let _ = Box::from_raw(ptr as *mut Vec<u64>);
+    }
+}
+
 fn ensure_bypass_key() {
     BYPASS_KEY_INIT.call_once(|| unsafe {
-        libc::pthread_key_create(&mut BYPASS_KEY as *mut _, None);
+        libc::pthread_key_create(&mut BYPASS_KEY as *mut _, Some(bypass_stack_destructor));
     });
 }
 
-/// callOriginal 前调用：设置当前线程 bypass 的 original ArtMethod 地址
-pub(crate) fn set_call_original_bypass(art_method: u64) {
+/// 获取当前线程的 bypass 栈（惰性创建）
+unsafe fn get_bypass_stack() -> &'static mut Vec<u64> {
     ensure_bypass_key();
-    unsafe { libc::pthread_setspecific(BYPASS_KEY, art_method as *const _); }
+    let ptr = libc::pthread_getspecific(BYPASS_KEY) as *mut Vec<u64>;
+    if ptr.is_null() {
+        let stack = Box::new(Vec::<u64>::with_capacity(4));
+        let raw = Box::into_raw(stack);
+        libc::pthread_setspecific(BYPASS_KEY, raw as *const _);
+        &mut *raw
+    } else {
+        &mut *ptr
+    }
 }
 
-/// callOriginal 后调用：清除 bypass
+/// callOriginal 前调用：将 original ArtMethod 地址 push 到 bypass 栈
+/// 支持嵌套：callback skip fallback 期间内层方法也可能 skip 并调用 invoke_original_jni
+pub(crate) fn set_call_original_bypass(art_method: u64) {
+    unsafe { get_bypass_stack().push(art_method); }
+}
+
+/// callOriginal 后调用：从 bypass 栈 pop（恢复外层 bypass）
 pub(crate) fn clear_call_original_bypass() {
-    ensure_bypass_key();
-    unsafe { libc::pthread_setspecific(BYPASS_KEY, std::ptr::null()); }
+    unsafe { get_bypass_stack().pop(); }
 }
 
 /// C-callable：art_router thunk + DoCall hook 调用，判断是否应该路由。
-/// 返回 1 = 正常路由到 replacement，返回 0 = 跳过（callOriginal bypass 或 stack 递归）。
+/// 返回 1 = 正常路由到 replacement，返回 0 = 跳过（callOriginal bypass 或 stack 递归 或 JS engine 繁忙）。
 #[no_mangle]
 pub unsafe extern "C" fn art_router_stack_check(replacement: u64) -> i32 {
-    // TLS bypass: callOriginal 期间当前线程设置了 bypass 的 original 地址
-    ensure_bypass_key();
-    let bypass = libc::pthread_getspecific(BYPASS_KEY) as u64;
-    if bypass != 0 {
-        // bypass 存的是 original ArtMethod 地址。
-        // art_router table 是 [original, replacement] 对，通过 C 侧查表反查。
-        if hook_ffi::hook_art_router_table_lookup_original(replacement) == bypass {
-            return 0; // callOriginal bypass
+    // TLS bypass 栈: 检查栈中是否有任何一个 entry 匹配当前 replacement 的 original
+    let stack = get_bypass_stack();
+    if !stack.is_empty() {
+        let original = hook_ffi::hook_art_router_table_lookup_original(replacement);
+        if original != 0 {
+            for &bypassed in stack.iter() {
+                if bypassed == original {
+                    return 0; // callOriginal bypass
+                }
+            }
         }
     }
+
+    // JS engine 繁忙检查: 非 JS 线程且无法获取 JS engine lock 时 bypass。
+    // 防止进入 replacement → JNI → callback → invoke_original_jni 路径:
+    // JNI stub (art_quick_invoke_static_stub) 不保留 x17 等 Quick 约定寄存器，
+    // JIT 代码的 interface dispatch 读到脏 x17 → SIGSEGV。
+    // bypass 走 not_found → trampoline 路径，art_router prologue/epilogue 完整保存恢复
+    // 所有寄存器（x0-x7, x20-x29, lr, d0-d7），方法以原始状态执行。
+    {
+        let current_thread = crate::current_thread_id_u64();
+        if crate::JS_ENGINE_OWNER_THREAD.load(std::sync::atomic::Ordering::Acquire) != current_thread {
+            if crate::JS_ENGINE.try_lock().is_err() {
+                return 0;
+            }
+        }
+    }
+
     // Fallback: managed stack check (对标 Frida, 覆盖其他递归场景)
     if should_replace_for_stack(replacement) { 1 } else { 0 }
 }

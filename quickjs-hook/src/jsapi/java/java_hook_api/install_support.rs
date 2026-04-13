@@ -196,6 +196,8 @@ pub(super) unsafe fn update_original_method_flags_for_hook(
     ));
 }
 
+/// 返回 (per_method_hook_target, quick_trampoline)
+/// quick_trampoline: Layer 3 的 art_router trampoline 地址（用于 callback skip fallback）
 pub(super) unsafe fn install_per_method_router_hook(
     has_independent_code: bool,
     original_entry_point: u64,
@@ -204,7 +206,7 @@ pub(super) unsafe fn install_per_method_router_hook(
     env: JniEnv,
     art_method: u64,
     _force_interpreter_route: bool,
-) -> Result<Option<u64>, String> {
+) -> Result<(Option<u64>, u64), String> {
     if has_independent_code {
         // Layer 3: inline hook quickCode 作为快速路径 (直接调用场景)
         let mut hooked_target: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -246,7 +248,7 @@ pub(super) unsafe fn install_per_method_router_hook(
             hooked_bytes[0], hooked_bytes[1], hooked_bytes[2], hooked_bytes[3]
         ));
 
-        Ok(Some(actual_hook_target))
+        Ok((Some(actual_hook_target), trampoline as u64))
     } else {
         // 非 compiled 方法: entry_point 是共享 stub (nterp/interpreter_bridge/resolution)
         // 如果 entry_point 不是 Layer 1 已 hook 的 interpreter_bridge/resolution_trampoline,
@@ -276,6 +278,6 @@ pub(super) unsafe fn install_per_method_router_hook(
                 original_entry_point
             ));
         }
-        Ok(None)
+        Ok((None, 0))
     }
 }
