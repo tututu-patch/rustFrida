@@ -1,25 +1,40 @@
-//! Java.choose 的 Android 14+ 堆扫描后端。
+//! Java.choose 的 ART 堆扫描后端。
 //!
 //! 背景：API 34+ 把 `VMDebug.getInstancesOfClasses` 从 Java 层删了，API 36 更进一步
-//! 把 `art::gc::Heap::VisitObjects / GetInstances / JavaVMExt::DecodeGlobal`
-//! 这些内部符号从 libart.so `.dynsym` 里删了，Frida 原生方案在 API 36 上同样失效。
+//! 把 `art::gc::Heap::VisitObjects / GetInstances` 这些 Frida 依赖的内部符号从 libart.so
+//! `.dynsym` 里删了。Android Studio API 31 emulator image 更是连 VMDebug 的 native
+//! 侧实现都没打进 libart —— 三条公开路径全挂。本后端直接对 ART 堆暴力扫描绕开。
 //!
-//! 本后端直接对 ART 堆做暴力扫描：
+//! **兼容矩阵**（实测）：
+//!
+//! | API | VMDebug native | Heap::VisitObjects | Heap::GetInstances | 本后端 |
+//! |-----|----------------|--------------------|--------------------|--------|
+//! | 31 (emu) | ✗ (剥离) | ✗ | ✗ | ✓ 唯一可用 |
+//! | 36 (stock) | ✗ (Java API 删除) | ✗ (dynsym 剥离) | ✗ | ✓ 唯一可用 |
+//!
+//! **算法**：
 //!   1. 用 `art::Thread::CurrentFromGdb` 拿当前 `art::Thread*`
-//!   2. `art::Thread::DecodeGlobalJObject(jclass)` 把 target class 的 global ref
-//!      还原成 `art::mirror::Class*`（needle）
+//!   2. `art::Thread::DecodeGlobalJObject(jclass)`（modern）或 `DecodeJObject`（API ≤13）
+//!      把 target class 的 global ref 还原成 `art::mirror::Class*`（needle）
 //!   3. 用 `art::ScopedSuspendAll` RAII 挂起所有线程（ctor/dtor 都走全局 Runtime，
 //!      不 deref 传入的 `this`，所以不需要 struct 存储）
 //!   4. `art::gc::ScopedGCCriticalSection(self, kGcCauseDebugger, kCollectorTypeHeapTrim)`
 //!      锁 GC 临界区（ctor 存 Thread*/cause_name_，struct 需要栈存储 ~48B）
-//!   5. 从 `/proc/self/maps` 枚举 `[anon:dalvik-main space]` / `[anon:dalvik-*large object*]`
-//!      / `[anon:dalvik-zygote*]` / `[anon:dalvik-non moving*]` 这些真正放对象的 VMA
-//!   6. 每个 VMA 按 8 字节对齐扫描，读首 4 字节 compressed class ref，与 needle 低 32
-//!      位比对；命中后再做一次二重校验：`*candidate_class` 应指向 `java.lang.Class`
+//!   5. 从 `/proc/self/maps` 枚举 `[anon:dalvik-main space...]` / `[anon:dalvik-large object...]`
+//!      / `[anon:dalvik-zygote...]` / `[anon:dalvik-region space...]` 这些真正放对象的 VMA
+//!      （按前缀匹配兼容 CMC/CC GC 变体，如 `[anon:dalvik-main space (region space)]`）
+//!   6. 按 `mirror::Class::object_size_alloc_fast_path_` 步进扫描（偏移从反汇编
+//!      `Class::SetObjectSizeAllocFastPath` 动态探测；API 31=0x64, API 36=0x5c）；
+//!      读首 4 字节 compressed class ref，与 needle 低 32 位比对；命中后再做一次
+//!      二重校验：`*candidate_class` 应指向 `java.lang.Class`
 //!   7. 命中对象列表逐个 `art::JavaVMExt::AddGlobalRef` 成 jobject 返回
 //!
-//! Note：ART 堆位于低 4GB 虚拟地址（`[anon:dalvik-main space]` 实测 `0x02000000-0x12000000`），
-//! 所以 `HeapReference<T>` 的 u32 存储 == 完整 64 位指针（零扩展）。
+//! **Frida 兼容性吸收**：所有版本敏感符号都采用 Frida 式的 `optionals` 多变体 fallback
+//! （如 DecodeGlobalJObject/DecodeJObject，AddGlobalRef 的 ObjPtr/原生 Object* 变体）。
+//!
+//! Note：ART 堆位于低 4GB 虚拟地址（`[anon:dalvik-main space]` 实测 `0x02000000-0x12000000` /
+//! CMC GC 下 `0x12c00000-0x2ac00000`），所以 `HeapReference<T>` 的 u32 存储 == 完整 64 位
+//! 指针（零扩展）。
 
 use std::collections::HashSet;
 use std::ffi::{c_char, c_void, CString};
@@ -44,10 +59,13 @@ const K_COLLECTOR_TYPE_HEAP_TRIM: u32 = 8;
 /// 布局随版本扩展。
 const SGCS_STORAGE_BYTES: usize = 48;
 
-/// `mirror::Class::object_size_alloc_fast_path_` 字段偏移。
-/// 从 `SetObjectSizeAllocFastPath` 的反汇编提取（API 36 libart.so 上是 0x5c）。
-/// 对 non-array non-primitive class = 对象实例字节数。array class / primitive class = 0。
-const CLASS_OBJECT_SIZE_OFFSET: usize = 0x5c;
+/// `mirror::Class::object_size_alloc_fast_path_` 字段偏移的经验常量表。
+/// 反汇编探测失败时从此列表兜底，按"现代版本优先"顺序尝试。
+/// - 0x5c: API 34~36 (Android 14+)
+/// - 0x64: API 31~33 (Android 12~13)
+/// - 0x60, 0x68: AOSP 开发分支里观察到的偏移
+/// 后续新版本触发未命中时，扩充该列表。
+const CLASS_OBJECT_SIZE_OFFSET_CANDIDATES: &[usize] = &[0x5c, 0x64, 0x60, 0x68];
 
 /// ART `kObjectAlignment` = 8 字节（mirror::Object 的最小对齐）。
 const OBJECT_ALIGNMENT: u64 = 8;
@@ -114,6 +132,57 @@ unsafe impl Sync for ArtHeapApi {}
 
 static ART_HEAP_API: OnceLock<Option<ArtHeapApi>> = OnceLock::new();
 
+/// 缓存 `mirror::Class::object_size_alloc_fast_path_` 偏移（按 libart 实际版本探测）。
+static CLASS_OBJECT_SIZE_OFFSET: OnceLock<usize> = OnceLock::new();
+
+/// 反汇编 `Class::SetObjectSizeAllocFastPath` 定位 `add xD, xN, #imm12` 指令，
+/// imm12 即 object_size_alloc_fast_path_ 字段偏移。
+///
+/// 典型函数体只有 ~16 条指令，且必定含 `add xD, xN, #offset` 后紧跟 `ldar/stlr`。
+/// 我们扫前 40 条指令，取第一个 imm12 ∈ [0x20, 0xC0] 的 64-bit ADD immediate。
+/// 探测失败 fallback 到 `CLASS_OBJECT_SIZE_OFFSET_CANDIDATES[0]`（最现代版本的值）。
+fn resolve_class_object_size_offset() -> usize {
+    *CLASS_OBJECT_SIZE_OFFSET.get_or_init(|| unsafe {
+        let fn_addr = crate::jsapi::module::libart_dlsym(
+            "_ZN3art6mirror5Class26SetObjectSizeAllocFastPathEj",
+        ) as u64;
+        let fallback = CLASS_OBJECT_SIZE_OFFSET_CANDIDATES[0];
+        if fn_addr == 0 {
+            output_verbose(&format!(
+                "[heap_scan] SetObjectSizeAllocFastPath 符号缺失, object_size_offset fallback {:#x}",
+                fallback,
+            ));
+            return fallback;
+        }
+        // 遇 RET (0xd65f03c0) 停止扫描
+        const RET: u32 = 0xd65f_03c0;
+        for i in 0..40u64 {
+            let insn = std::ptr::read_volatile((fn_addr + i * 4) as *const u32);
+            if insn == RET {
+                break;
+            }
+            // 64-bit ADD immediate, shift=0: 31:22 = 10010001 00
+            if (insn & 0xFFC0_0000) == 0x9100_0000 {
+                let imm12 = ((insn >> 10) & 0xFFF) as usize;
+                let rd = (insn & 0x1F) as u8;
+                let rn = ((insn >> 5) & 0x1F) as u8;
+                if imm12 >= 0x20 && imm12 <= 0xC0 && rd != rn {
+                    output_verbose(&format!(
+                        "[heap_scan] object_size_offset = {:#x} (probed from SetObjectSizeAllocFastPath@{:#x})",
+                        imm12, fn_addr,
+                    ));
+                    return imm12;
+                }
+            }
+        }
+        output_verbose(&format!(
+            "[heap_scan] object_size_offset 反汇编探测失败, 经验 fallback {:#x} (候选 {:?})",
+            fallback, CLASS_OBJECT_SIZE_OFFSET_CANDIDATES,
+        ));
+        fallback
+    })
+}
+
 fn resolve_art_heap_api() -> Option<&'static ArtHeapApi> {
     ART_HEAP_API
         .get_or_init(|| unsafe {
@@ -129,11 +198,15 @@ fn resolve_art_heap_api() -> Option<&'static ArtHeapApi> {
 
             let thread_current =
                 resolve("_ZN3art6Thread14CurrentFromGdbEv", &mut missing, "Thread::CurrentFromGdb");
-            let decode_global = resolve(
+            // Thread::DecodeGlobalJObject（API 36+）/ Thread::DecodeJObject（API ≤13）同签名：
+            // x0=this, x1=jobject, 返回 mirror::Object* u64。按 Frida optionals 顺序尝试。
+            let decode_global = crate::jsapi::module::dlsym_first_match(&[
                 "_ZNK3art6Thread19DecodeGlobalJObjectEP8_jobject",
-                &mut missing,
-                "Thread::DecodeGlobalJObject",
-            );
+                "_ZNK3art6Thread13DecodeJObjectEP8_jobject",
+            ]);
+            if decode_global == 0 {
+                missing.push("Thread::DecodeGlobalJObject/DecodeJObject");
+            }
             let ssa_ctor = resolve(
                 "_ZN3art16ScopedSuspendAllC1EPKcb",
                 &mut missing,
@@ -154,15 +227,13 @@ fn resolve_art_heap_api() -> Option<&'static ArtHeapApi> {
                 &mut missing,
                 "ScopedGCCriticalSection::dtor",
             );
-            // AddGlobalRef 有两个 mangling 变体（ObjPtr 参数 vs Object* 参数），先试新版
-            let mut add_global_ref = crate::jsapi::module::libart_dlsym(
+            // JavaVMExt::AddGlobalRef 的两条 ABI 变体（与 Frida android.js::optionals 对齐）：
+            //   ObjPtr<mirror::Object> 变体（modern） vs 原生 Object* 变体（legacy pre-Android 9）
+            // 同签名对 x0/x1/x2 = (JavaVMExt*, Thread*, Object*) 调用 ABI 等价。
+            let add_global_ref = crate::jsapi::module::dlsym_first_match(&[
                 "_ZN3art9JavaVMExt12AddGlobalRefEPNS_6ThreadENS_6ObjPtrINS_6mirror6ObjectEEE",
-            ) as u64;
-            if add_global_ref == 0 {
-                add_global_ref = crate::jsapi::module::libart_dlsym(
-                    "_ZN3art9JavaVMExt12AddGlobalRefEPNS_6ThreadEPNS_6mirror6ObjectE",
-                ) as u64;
-            }
+                "_ZN3art9JavaVMExt12AddGlobalRefEPNS_6ThreadEPNS_6mirror6ObjectE",
+            ]);
             if add_global_ref == 0 {
                 missing.push("JavaVMExt::AddGlobalRef");
             }
@@ -207,18 +278,22 @@ struct HeapRegion {
 /// JNI 调用走错 class 的 v-table 直接 abort。
 ///
 /// Zygote space + main space 只放 instance，非常干净。
+///
+/// 名字匹配用 **前缀** 而不是相等：
+/// API 31 CMC/CC GC 实际 VMA 是 `[anon:dalvik-main space (region space)]`
+/// API 36 CMC GC 直接是 `[anon:dalvik-main space]` 或 `[anon:dalvik-region space]`
+/// Android 8 RosAlloc 还会有 `[anon:dalvik-main space 1]`。
+/// 统一按已知前缀匹配，防御不同 GC 后端的括号后缀。
 fn is_app_heap_vma_name(name: &str) -> bool {
-    const APP_HEAP_NAMES: &[&str] = &[
-        "[anon:dalvik-main space]",
-        "[anon:dalvik-main space 1]",
-        "[anon:dalvik-zygote space]",
-        "[anon:dalvik-large object space]",
-        "[anon:dalvik-free list large object space]",
-        "[anon:dalvik-large object free list space]",
-        // Android 14+/API 36 CMC GC 可能的其它命名（防御性加入）
-        "[anon:dalvik-region space]",
+    const APP_HEAP_PREFIXES: &[&str] = &[
+        "[anon:dalvik-main space",
+        "[anon:dalvik-zygote space",
+        "[anon:dalvik-large object space",
+        "[anon:dalvik-free list large object space",
+        "[anon:dalvik-large object free list space",
+        "[anon:dalvik-region space",
     ];
-    APP_HEAP_NAMES.iter().any(|n| *n == name)
+    APP_HEAP_PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
 /// boot image VMA —— 形如 `[anon:dalvik-/system/framework/boot.art]`，无空格。
@@ -633,6 +708,9 @@ pub(super) unsafe fn heap_scan_enumerate_instances(
         output_verbose("[heap_scan] subtypes 请求但 super_class_ 偏移探测失败，退化为 exact match");
     }
 
+    // object_size_alloc_fast_path_ 字段偏移（版本敏感，首次调用做缓存）
+    let class_obj_size_off = resolve_class_object_size_offset();
+
     // RAII：ScopedSuspendAll + ScopedGCCriticalSection
     let cause_cstr = CString::new("rustFrida Java.choose").unwrap();
     let mut sgcs_storage = [0u64; SGCS_STORAGE_BYTES / 8];
@@ -673,6 +751,7 @@ pub(super) unsafe fn heap_scan_enumerate_instances(
             &accept_set,
             java_lang_class_low32,
             max_count,
+            class_obj_size_off,
         );
         (hits, accept_set.len(), walk_stats)
     }));
@@ -743,6 +822,7 @@ unsafe fn scan_regions_for_class_set(
     accept_set: &HashSet<u32>,
     java_lang_class_low32: u32,
     max_count: usize,
+    class_obj_size_off: usize,
 ) -> Vec<u64> {
     let mut hits = Vec::new();
     let cap = if max_count == 0 { usize::MAX } else { max_count };
@@ -785,7 +865,7 @@ unsafe fn scan_regions_for_class_set(
             }
 
             // 跳过整个对象
-            let step = object_step_bytes(class_ptr);
+            let step = object_step_bytes(class_ptr, class_obj_size_off);
             addr += step;
         }
     }
@@ -796,9 +876,8 @@ unsafe fn scan_regions_for_class_set(
 /// 给定一个 mirror::Class*，返回该类实例占用字节数（已向 8B 对齐）。
 /// 失败或不可推断（array / primitive class）返回 8，退化为保守步进。
 #[inline]
-unsafe fn object_step_bytes(class_ptr: u64) -> u64 {
-    // class_ptr + 0x5c 处是 object_size_alloc_fast_path_
-    let size_addr = class_ptr + CLASS_OBJECT_SIZE_OFFSET as u64;
+unsafe fn object_step_bytes(class_ptr: u64, class_obj_size_off: usize) -> u64 {
+    let size_addr = class_ptr + class_obj_size_off as u64;
     let raw = std::ptr::read_volatile(size_addr as *const u32);
 
     if raw == 0 || raw > MAX_REASONABLE_OBJECT_SIZE {

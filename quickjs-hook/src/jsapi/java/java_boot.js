@@ -1001,9 +1001,24 @@
 
         // 接受第三参（位置）或 callbacks.subtypes
         var sub = includeSubtypes === true || callbacks.subtypes === true;
-        var maxCount = (typeof callbacks.maxCount === "number" && callbacks.maxCount >= 0)
-            ? callbacks.maxCount
-            : DEFAULT_MAX_COUNT;
+
+        // maxCount 语义（防 "0=无限扫全部" foot-gun）：
+        //   未传 / 非数字 / 等于 0 → DEFAULT_MAX_COUNT (16384) 安全默认
+        //   正整数 N → 最多 N 个实例
+        //   Infinity 或负数 → native 0 = **显式** 不限（escape hatch，自负其责）
+        //
+        // 设计动机：launcher 等常驻进程里 String 实例 50K+，"0=无限" 会瞬间
+        // 填满 JNI IndirectReferenceTable (默认上限 51200) → 目标进程 abort。
+        // 无限扫描得由用户显式 opt-in (Infinity / 负数)。
+        var mc = callbacks.maxCount;
+        var maxCount;
+        if (typeof mc !== "number" || mc === 0) {
+            maxCount = DEFAULT_MAX_COUNT;
+        } else if (mc === Infinity || mc < 0) {
+            maxCount = 0; // native 侧 0 = 不限
+        } else {
+            maxCount = mc;
+        }
 
         var raw = _enumerateInstances(className, !!sub, maxCount);
         // 我们给每个 wrapped 用单独 target 对象，并保留引用 —— release 时把 __jptr
