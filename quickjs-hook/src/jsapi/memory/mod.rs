@@ -13,6 +13,26 @@ use alloc::{memory_alloc, memory_alloc_utf8_string, memory_flush_code_cache};
 use read::*;
 use write::*;
 
+/// 把 Memory 读写方法注册到 NativePointer prototype，实现 Frida 兼容的
+/// `ptr.readXxx()` / `ptr.writeXxx(val)` 调用风格。
+pub fn register_ptr_methods(ctx_ptr: *mut crate::ffi::JSContext, proto: crate::ffi::JSValue) {
+    unsafe {
+        add_cfunction_to_object(ctx_ptr, proto, "readU8", memory_read_u8, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readU16", memory_read_u16, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readU32", memory_read_u32, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readU64", memory_read_u64, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readPointer", memory_read_pointer, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readCString", memory_read_cstring, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readUtf8String", memory_read_utf8_string, 0);
+        add_cfunction_to_object(ctx_ptr, proto, "readByteArray", memory_read_byte_array, 1);
+        add_cfunction_to_object(ctx_ptr, proto, "writeU8", memory_write_u8, 1);
+        add_cfunction_to_object(ctx_ptr, proto, "writeU16", memory_write_u16, 1);
+        add_cfunction_to_object(ctx_ptr, proto, "writeU32", memory_write_u32, 1);
+        add_cfunction_to_object(ctx_ptr, proto, "writeU64", memory_write_u64, 1);
+        add_cfunction_to_object(ctx_ptr, proto, "writePointer", memory_write_pointer, 1);
+    }
+}
+
 /// Register Memory API
 pub fn register_memory_api(ctx: &JSContext) {
     let global = ctx.global_object();

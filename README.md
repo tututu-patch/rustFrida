@@ -564,6 +564,12 @@ var p = ptr("0x7f12345678");   // hex string / number / BigInt / NativePointer
 p.add(0x100)                   // → NativePointer
 p.sub(offset)                  // → NativePointer
 p.toString()                   // → "0x7f12345678"
+
+// Frida 兼容：所有 Memory 读写方法也挂在 NativePointer 上
+p.readU32()                    // 等价 Memory.readU32(p)
+p.writeU64(0xdeadbeefn)        // 等价 Memory.writeU64(p, 0xdeadbeefn)
+p.readCString()                // 等价 Memory.readCString(p)
+p.add(8).readPointer()         // 链式
 ```
 
 | API | 参数 | 返回 |
@@ -573,6 +579,10 @@ p.toString()                   // → "0x7f12345678"
 | `p.sub(offset)` | `AddressLike` | `NativePointer` |
 | `p.toString()` | — | `string` |
 | `p.toNumber()` | — | `bigint` |
+| `p.readU8/U16/U32/U64/Pointer()` | — | `number \| bigint \| NativePointer` |
+| `p.readCString/readUtf8String()` | — | `string` |
+| `p.readByteArray(len)` | `number` | `ArrayBuffer` |
+| `p.writeU8/U16/U32/U64/Pointer(val)` | 值 | `undefined` |
 
 ## console
 

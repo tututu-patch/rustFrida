@@ -325,6 +325,10 @@ pub fn register_ptr(ctx: &JSContext) {
         add_cfunction_to_object(ctx_ptr, proto, "toNumber", native_pointer_to_number, 0);
         add_cfunction_to_object(ctx_ptr, proto, "toInt", native_pointer_to_number, 0);
 
+        // Frida 兼容: 注册 Memory 读写方法到 NativePointer prototype
+        // 支持 ptr.readU32() / ptr.writeU32(val) 调用风格
+        crate::jsapi::memory::register_ptr_methods(ctx_ptr, proto);
+
         // Set as class prototype
         ffi::JS_SetClassProto(ctx_ptr, class_id, proto);
     }
